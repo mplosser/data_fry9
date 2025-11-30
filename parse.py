@@ -1,0 +1,494 @@
+"""
+Parse FR Y-9C data from CSV files to parquet format.
+
+This script processes downloaded FR Y-9C CSV files and converts them to
+standardized parquet format with parallelization support.
+
+Features:
+- Automatically extracts ZIP files (BHCF*.zip) before parsing
+- Handles CSV format: bhcfYYQQ.csv (e.g., bhcf2103.csv for 2021 Q1)
+- Removes separator rows that must be removed
+- RSSD9001 is the bank holding company identifier
+
+Usage:
+    # Parse all files with default parallelization (automatically extracts ZIPs)
+    python parse.py \\
+        --input-dir data/raw \\
+        --output-dir data/processed
+
+    # Specify number of workers
+    python parse.py \\
+        --input-dir data/raw \\
+        --output-dir data/processed  \\
+        --workers 8
+
+    # Disable parallelization
+    python parse.py \\
+        --input-dir data/raw \\
+        --output-dir data/processed  \\
+        --no-parallel
+"""
+
+import pandas as pd
+import argparse
+import sys
+import zipfile
+from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+import re
+
+
+def extract_zip_files(input_dir: Path) -> int:
+    """
+    Extract ZIP files in the input directory.
+
+    Looks for BHCF*.zip files and extracts the TXT files, renaming them to CSV format.
+
+    Args:
+        input_dir: Directory containing ZIP files
+
+    Returns:
+        Number of ZIP files extracted
+    """
+    zip_files = list(input_dir.glob('BHCF*.zip')) + list(input_dir.glob('bhcf*.zip'))
+
+    if not zip_files:
+        return 0
+
+    extracted_count = 0
+
+    for zip_path in zip_files:
+        try:
+            # Extract quarter info from ZIP filename
+            # Format: BHCF20210630.zip -> bhcf2106.csv
+            match = re.search(r'bhcf(\d{4})(\d{2})(\d{2})', zip_path.name.lower())
+
+            if not match:
+                print(f"Skipping {zip_path.name}: Cannot parse filename")
+                continue
+
+            year = int(match.group(1))
+            month = int(match.group(2))
+
+            # Determine quarter from month
+            quarter_months = {'03': '03', '06': '06', '09': '09', '12': '12'}
+            month_str = f"{month:02d}"
+
+            if month_str not in quarter_months:
+                print(f"Skipping {zip_path.name}: Invalid month {month_str}")
+                continue
+
+            # Generate CSV filename: bhcfYYQQ.csv
+            year_short = year % 100
+            csv_filename = f"bhcf{year_short:02d}{month_str}.csv"
+            csv_path = input_dir / csv_filename
+
+            # Skip if CSV already exists
+            if csv_path.exists():
+                print(f"Skipping {zip_path.name}: {csv_filename} already exists")
+                continue
+
+            # Extract ZIP file
+            print(f"Extracting {zip_path.name}...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Find the BHCF TXT file (case-insensitive)
+                bhcf_file = None
+                for file in zip_ref.namelist():
+                    if file.upper().startswith('BHCF') and file.upper().endswith('.TXT'):
+                        bhcf_file = file
+                        break
+
+                if not bhcf_file:
+                    print(f"  WARNING: No BHCF*.TXT file found in {zip_path.name}")
+                    continue
+
+                # Extract and rename to .csv
+                with zip_ref.open(bhcf_file) as source:
+                    with open(csv_path, 'wb') as target:
+                        target.write(source.read())
+
+                csv_size_mb = csv_path.stat().st_size / (1024 * 1024)
+                print(f"  Extracted to {csv_filename} ({csv_size_mb:.2f} MB)")
+                extracted_count += 1
+
+        except zipfile.BadZipFile:
+            print(f"ERROR: {zip_path.name} is not a valid ZIP file")
+        except Exception as e:
+            print(f"ERROR extracting {zip_path.name}: {e}")
+
+    return extracted_count
+
+
+def extract_quarter_from_filename(filename):
+    """
+    Extract year and quarter from filename.
+
+    Format: bhcfYYQQ.csv
+    - YY: 2-digit year (e.g., 21 for 2021)
+    - QQ: Quarter end month (03, 06, 09, 12)
+
+    Returns:
+        Tuple of (year, quarter, quarter_str) or (None, None, None)
+    """
+    # Match bhcfYYQQ pattern
+    match = re.search(r'bhcf(\d{2})(\d{2})', filename.lower())
+
+    if not match:
+        return None, None, None
+
+    year_code = match.group(1)
+    month_code = match.group(2)
+
+    # Convert 2-digit year to 4-digit
+    year_2digit = int(year_code)
+    year = 2000 + year_2digit if year_2digit < 50 else 1900 + year_2digit
+
+    # Convert month to quarter
+    quarter_map = {'03': 1, '06': 2, '09': 3, '12': 4}
+    quarter = quarter_map.get(month_code)
+
+    if quarter is None:
+        return None, None, None
+
+    quarter_str = f"{year}Q{quarter}"
+
+    return year, quarter, quarter_str
+
+
+def process_fry9c_csv(csv_path):
+    """
+    Parse FR Y-9C CSV file.
+
+    Handles:
+    - Separator row removal
+    - Column name standardization (uppercase)
+    - RSSD9001 → RSSD_ID renaming
+    - REPORTING_PERIOD addition
+    - Numeric conversion
+
+    Args:
+        csv_path: Path to CSV file
+
+    Returns:
+        Standardized DataFrame
+    """
+    # Read CSV (FR Y-9C files use caret ^ as delimiter)
+    # Try UTF-8 first, fallback to latin-1 for older files
+    # If parsing errors occur, skip bad lines
+    try:
+        df = pd.read_csv(csv_path, delimiter='^', low_memory=False, dtype=str, encoding='utf-8')
+    except UnicodeDecodeError:
+        df = pd.read_csv(csv_path, delimiter='^', low_memory=False, dtype=str, encoding='latin-1')
+    except pd.errors.ParserError:
+        # Some files have malformed rows - skip them (python engine doesn't support low_memory)
+        df = pd.read_csv(csv_path, delimiter='^', dtype=str, encoding='latin-1',
+                        on_bad_lines='skip', engine='python')
+
+    # Remove separator row (second row with "--------")
+    if len(df) > 0:
+        # Check first column for separator
+        first_col = df.columns[0]
+        df = df[df[first_col] != '--------']
+
+    # Ensure uppercase column names
+    df.columns = [str(col).upper().strip() for col in df.columns]
+
+    # Rename RSSD9001 to RSSD_ID for consistency
+    if 'RSSD9001' in df.columns:
+        df = df.rename(columns={'RSSD9001': 'RSSD_ID'})
+    elif 'RSSD_ID' not in df.columns:
+        raise ValueError(f"RSSD identifier column not found in {csv_path.name}")
+
+    # Convert RSSD_ID to integer
+    df['RSSD_ID'] = pd.to_numeric(df['RSSD_ID'], errors='coerce')
+    df = df.dropna(subset=['RSSD_ID'])
+    df['RSSD_ID'] = df['RSSD_ID'].astype(int)
+
+    # Add REPORTING_PERIOD from filename
+    filename = csv_path.stem
+    year, quarter, quarter_str = extract_quarter_from_filename(filename)
+
+    if year is None:
+        raise ValueError(f"Could not extract quarter from filename: {filename}")
+
+    # Create reporting period (quarter end date)
+    reporting_period = pd.Timestamp(year=year, month=quarter*3, day=1) + pd.offsets.QuarterEnd(0)
+    df['REPORTING_PERIOD'] = reporting_period
+
+    # Standardize column order
+    metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD']
+    data_cols = sorted([c for c in df.columns if c not in metadata_cols])
+    df = df[metadata_cols + data_cols]
+
+    return df
+
+
+def process_file_wrapper(args_tuple):
+    """
+    Wrapper function for parallel processing.
+
+    Args:
+        args_tuple: (file_path_str, output_dir_str)
+
+    Returns:
+        Tuple of (status, quarter_str, message)
+    """
+    file_path_str, output_dir_str = args_tuple
+
+    file_path = Path(file_path_str)
+    output_dir = Path(output_dir_str)
+
+    try:
+        # Extract quarter from filename
+        year, quarter, quarter_str = extract_quarter_from_filename(file_path.name)
+
+        if quarter_str is None:
+            return ('error', None, f"Could not extract quarter from {file_path.name}")
+
+        # Check if already processed
+        output_path = output_dir / f"{quarter_str}.parquet"
+        if output_path.exists():
+            return ('skipped', quarter_str, "Already exists")
+
+        # Process CSV
+        df = process_fry9c_csv(file_path)
+
+        # Save as parquet
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(output_path, index=False, compression='snappy')
+
+        return ('success', quarter_str, f"{len(df):,} BHCs, {len(df.columns)-2} variables")
+
+    except Exception as e:
+        import traceback
+        error_msg = f"Error processing {file_path.name}: {str(e)}\n{traceback.format_exc()}"
+        return ('error', None, error_msg)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Parse FR Y-9C data from CSV files to parquet format',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Parse with default parallelization (all CPUs)
+  # Automatically extracts any ZIP files found
+  python parse.py \\
+      --input-dir data/raw \\
+      --output-dir data/processed
+
+  # Limit to 4 workers
+  python parse.py \\
+      --input-dir data/raw \\
+      --output-dir data/processed \\
+      --workers 4
+
+  # Disable parallelization
+  python parse.py \\
+      --input-dir data/raw \\
+      --output-dir data/processed \\
+      --no-parallel
+
+Features:
+  - Automatically extracts BHCF*.zip files to CSV before parsing
+  - Handles both manually downloaded ZIPs and automated downloads
+  - Parallel processing for faster extraction and parsing
+
+Output Format:
+  - Quarterly parquet files: {YEAR}Q{Q}.parquet
+  - Columns: RSSD_ID, REPORTING_PERIOD, ... (alphabetical)
+  - All numeric values preserved as-is
+        """
+    )
+
+    parser.add_argument(
+        '--input-dir',
+        type=str,
+        required=True,
+        help='Directory containing CSV files'
+    )
+
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        required=True,
+        help='Directory to save parquet files'
+    )
+
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=None,
+        help='Number of parallel workers (default: all CPUs)'
+    )
+
+    parser.add_argument(
+        '--no-parallel',
+        action='store_true',
+        help='Disable parallel processing'
+    )
+
+    parser.add_argument(
+        '--start-year',
+        type=int,
+        help='Only process files from this year onwards'
+    )
+
+    parser.add_argument(
+        '--end-year',
+        type=int,
+        help='Only process files up to this year'
+    )
+
+    args = parser.parse_args()
+
+    # Setup paths
+    input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir)
+
+    if not input_dir.exists():
+        print(f"ERROR: Input directory does not exist: {input_dir}")
+        sys.exit(1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Extract ZIP files first (if any)
+    print("Checking for ZIP files to extract...")
+    extracted_count = extract_zip_files(input_dir)
+    if extracted_count > 0:
+        print(f"Extracted {extracted_count} ZIP file(s)\n")
+    else:
+        print("No ZIP files found to extract\n")
+
+    # Find CSV files
+    files_to_process = (
+        list(input_dir.glob('bhcf*.csv')) +
+        list(input_dir.glob('BHCF*.csv'))
+    )
+
+    # Filter by year if specified
+    if args.start_year or args.end_year:
+        filtered_files = []
+        for f in files_to_process:
+            year, quarter, quarter_str = extract_quarter_from_filename(f.name)
+            if year is None:
+                continue
+            if args.start_year and year < args.start_year:
+                continue
+            if args.end_year and year > args.end_year:
+                continue
+            filtered_files.append(f)
+        files_to_process = filtered_files
+
+    files_to_process.sort()
+
+    if not files_to_process:
+        print("No CSV files found to process")
+        return 1
+
+    # Determine worker count
+    if args.no_parallel:
+        workers = 1
+    elif args.workers:
+        workers = args.workers
+    else:
+        workers = multiprocessing.cpu_count()
+
+    print("="*80)
+    print("FR Y-9C DATA PARSING")
+    print("="*80)
+    print(f"Input directory: {input_dir}")
+    print(f"Output directory: {output_dir}")
+    print(f"Files to process: {len(files_to_process)}")
+    print(f"Parallel workers: {workers}")
+    print("="*80)
+
+    # Process files
+    successful = []
+    skipped = []
+    failed = []
+
+    if workers == 1:
+        # Sequential processing
+        print("\nProcessing sequentially...")
+        for file_path in files_to_process:
+            status, quarter_str, message = process_file_wrapper((str(file_path), str(output_dir)))
+
+            if status == 'success':
+                successful.append(quarter_str)
+                print(f"[{quarter_str}] {message}")
+            elif status == 'skipped':
+                skipped.append(quarter_str)
+                print(f"[{quarter_str}] {message}")
+            else:
+                failed.append(quarter_str if quarter_str else file_path.name)
+                print(f"[ERROR] {message}")
+
+    else:
+        # Parallel processing
+        print(f"\nProcessing in parallel with {workers} workers...")
+
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            # Submit all tasks
+            future_to_file = {
+                executor.submit(process_file_wrapper, (str(f), str(output_dir))): f
+                for f in files_to_process
+            }
+
+            # Process results as they complete
+            completed = 0
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                completed += 1
+
+                try:
+                    status, quarter_str, message = future.result()
+
+                    if status == 'success':
+                        successful.append(quarter_str)
+                        print(f"[{quarter_str}] {message}")
+                    elif status == 'skipped':
+                        skipped.append(quarter_str)
+                        print(f"[{quarter_str}] {message}")
+                    else:
+                        failed.append(quarter_str if quarter_str else file_path.name)
+                        print(f"[ERROR] {message}")
+
+                except Exception as e:
+                    print(f"[ERROR] Unexpected error processing {file_path.name}: {e}")
+                    failed.append(file_path.name)
+
+                # Progress update
+                if completed % 10 == 0 or completed == len(files_to_process):
+                    print(f"  Progress: {completed}/{len(files_to_process)} files processed")
+
+    # Summary
+    print("\n" + "="*80)
+    print("PARSING SUMMARY")
+    print("="*80)
+    print(f"Successfully processed: {len(successful)} files")
+    if successful:
+        successful_sorted = sorted(successful)
+        print(f"  Quarters: {successful_sorted[0]} to {successful_sorted[-1]}")
+
+    if skipped:
+        print(f"\nSkipped (already exist): {len(skipped)} files")
+        if len(skipped) <= 20:
+            print(f"  Quarters: {sorted(skipped)}")
+
+    if failed:
+        print(f"\nFailed: {len(failed)} files")
+        print(f"  {failed}")
+
+    print("\n" + "="*80)
+    print("NEXT STEPS")
+    print("="*80)
+    print("\nVerify the parsed data:")
+    print(f"  python summarize.py --input-dir {output_dir}")
+
+    return 0 if not failed else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
