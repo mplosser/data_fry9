@@ -1,6 +1,6 @@
 # FR Y-9C Bank Holding Company Data Pipeline
 
-Automated pipeline for downloading and processing FR Y-9C (Consolidated Financial Statements for Bank Holding Companies) data (1986-2025).
+Automated pipeline for downloading and processing FR Y-9 data (1986-2025).
 
 ## Overview
 Downloads raw data and converts it to parquet format. Automatically handles ZIP file extraction for manually downloaded FFIEC data.
@@ -8,8 +8,8 @@ Downloads raw data and converts it to parquet format. Automatically handles ZIP 
 **Data Coverage:**
 - **Quarters**: 1986 Q3 - Present
 - **Frequency**: Quarterly
-- **Entities**: 200-500 bank holding companies per quarter
-- **Variables**: 1,900-2,500 variables per quarter
+- **Entities**: Y-9C, Y-9LP and Y-9SP files (400-6,000 total per quarter)
+- **Variables**: 550-2,500 variables per quarter
 
 ## Quick Start
 
@@ -49,7 +49,6 @@ python parse.py --workers 4
 
 **Note**: The parse script automatically extracts any `BHCF*.zip` files found in `data/raw/` before parsing.
 
-**Note on FILER_TYPE**: If you parsed data before this feature was added, you'll need to delete the old parquet files and reparse to get the FILER_TYPE column:
 ```bash
 rm -rf data/processed/*.parquet
 python parse.py
@@ -96,17 +95,13 @@ data/processed/
   - BHCK#### - FR Y-9C variables (standard quarterly)
   - BHCP#### - FR Y-9LP variables (large/complex quarterly)
   - BHSP#### - FR Y-9SP variables (smaller semi-annual)
-  - BHCA#### - Regulatory capital items
   - Additional variables (alphabetical)
 
 **Coverage:**
 - ~160 quarters (1986 Q3 - 2025+)
 - **Q1 & Q3**: 400-500 BHCs (large institutions filing quarterly)
 - **Q2 & Q4**: 3,900-6,000 BHCs (all institutions - semi-annual + quarterly filers)
-- 1,900-2,500 variables per quarter
 - Complete data with no filtering or transformations
-
-**Note**: The variation in BHC counts reflects regulatory filing requirements - larger institutions ($1B+ assets) file quarterly, while smaller institutions file semi-annually (Q2 and Q4 only).
 
 ## Pipeline Scripts
 
