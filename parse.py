@@ -11,22 +11,19 @@ Features:
 - RSSD9001 is the bank holding company identifier
 
 Usage:
-    # Parse all files with default parallelization (automatically extracts ZIPs)
+    # Parse all files with default settings (uses data/raw -> data/processed)
+    python parse.py
+
+    # Specify custom directories
     python parse.py \\
         --input-dir data/raw \\
         --output-dir data/processed
 
     # Specify number of workers
-    python parse.py \\
-        --input-dir data/raw \\
-        --output-dir data/processed  \\
-        --workers 8
+    python parse.py --workers 8
 
     # Disable parallelization
-    python parse.py \\
-        --input-dir data/raw \\
-        --output-dir data/processed  \\
-        --no-parallel
+    python parse.py --no-parallel
 """
 
 import pandas as pd
@@ -161,6 +158,7 @@ def process_fry9c_csv(csv_path):
     Parse FR Y-9C CSV file.
 
     Handles:
+    - Auto-detection of delimiter (comma for old Chicago Fed, caret for new FFIEC)
     - Separator row removal
     - Column name standardization (uppercase)
     - RSSD9001 → RSSD_ID renaming
@@ -173,16 +171,23 @@ def process_fry9c_csv(csv_path):
     Returns:
         Standardized DataFrame
     """
-    # Read CSV (FR Y-9C files use caret ^ as delimiter)
+    # Auto-detect delimiter
+    # Chicago Fed files (pre-2021 Q2) use comma
+    # FFIEC files (2021 Q2+) use caret ^
+    with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+        first_line = f.readline()
+        delimiter = '^' if '^' in first_line else ','
+
+    # Read CSV with detected delimiter
     # Try UTF-8 first, fallback to latin-1 for older files
     # If parsing errors occur, skip bad lines
     try:
-        df = pd.read_csv(csv_path, delimiter='^', low_memory=False, dtype=str, encoding='utf-8')
+        df = pd.read_csv(csv_path, delimiter=delimiter, low_memory=False, dtype=str, encoding='utf-8')
     except UnicodeDecodeError:
-        df = pd.read_csv(csv_path, delimiter='^', low_memory=False, dtype=str, encoding='latin-1')
+        df = pd.read_csv(csv_path, delimiter=delimiter, low_memory=False, dtype=str, encoding='latin-1')
     except pd.errors.ParserError:
         # Some files have malformed rows - skip them (python engine doesn't support low_memory)
-        df = pd.read_csv(csv_path, delimiter='^', dtype=str, encoding='latin-1',
+        df = pd.read_csv(csv_path, delimiter=delimiter, dtype=str, encoding='latin-1',
                         on_bad_lines='skip', engine='python')
 
     # Remove separator row (second row with "--------")
@@ -216,8 +221,30 @@ def process_fry9c_csv(csv_path):
     reporting_period = pd.Timestamp(year=year, month=quarter*3, day=1) + pd.offsets.QuarterEnd(0)
     df['REPORTING_PERIOD'] = reporting_period
 
+    # Determine filer type based on which prefix has most non-null values
+    # BHCK = FR Y-9C (quarterly filers)
+    # BHCP = FR Y-9LP (quarterly, large/complex)
+    # BHSP = FR Y-9SP (semi-annual, smaller institutions)
+    bhck_cols = [c for c in df.columns if c.startswith('BHCK')]
+    bhcp_cols = [c for c in df.columns if c.startswith('BHCP')]
+    bhsp_cols = [c for c in df.columns if c.startswith('BHSP')]
+
+    df['bhck_count'] = df[bhck_cols].notna().sum(axis=1)
+    df['bhcp_count'] = df[bhcp_cols].notna().sum(axis=1)
+    df['bhsp_count'] = df[bhsp_cols].notna().sum(axis=1)
+
+    def classify_filer(row):
+        counts = {'FR_Y9C': row['bhck_count'], 'FR_Y9LP': row['bhcp_count'], 'FR_Y9SP': row['bhsp_count']}
+        max_type = max(counts, key=counts.get)
+        if counts[max_type] > 0:
+            return max_type
+        return 'UNKNOWN'
+
+    df['FILER_TYPE'] = df.apply(classify_filer, axis=1)
+    df = df.drop(columns=['bhck_count', 'bhcp_count', 'bhsp_count'])
+
     # Standardize column order
-    metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD']
+    metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD', 'FILER_TYPE']
     data_cols = sorted([c for c in df.columns if c not in metadata_cols])
     df = df[metadata_cols + data_cols]
 
@@ -272,23 +299,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Parse with default parallelization (all CPUs)
+  # Parse with default settings (data/raw -> data/processed)
   # Automatically extracts any ZIP files found
-  python parse.py \\
-      --input-dir data/raw \\
-      --output-dir data/processed
+  python parse.py
 
   # Limit to 4 workers
-  python parse.py \\
-      --input-dir data/raw \\
-      --output-dir data/processed \\
-      --workers 4
+  python parse.py --workers 4
 
   # Disable parallelization
+  python parse.py --no-parallel
+
+  # Use custom directories
   python parse.py \\
-      --input-dir data/raw \\
-      --output-dir data/processed \\
-      --no-parallel
+      --input-dir /path/to/csvs \\
+      --output-dir /path/to/output
 
 Features:
   - Automatically extracts BHCF*.zip files to CSV before parsing
@@ -305,15 +329,15 @@ Output Format:
     parser.add_argument(
         '--input-dir',
         type=str,
-        required=True,
-        help='Directory containing CSV files'
+        default='data/raw',
+        help='Directory containing CSV files (default: data/raw)'
     )
 
     parser.add_argument(
         '--output-dir',
         type=str,
-        required=True,
-        help='Directory to save parquet files'
+        default='data/processed',
+        help='Directory to save parquet files (default: data/processed)'
     )
 
     parser.add_argument(

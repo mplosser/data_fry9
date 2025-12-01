@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(for f in data/raw/bhcf21*.csv data/raw/bhcf22*.csv data/raw/bhcf23*.csv)",
+      "Bash(done)",
+      "Bash(while read f)",
+      "Bash(python parse.py:*)",
+      "Bash(python summarize.py:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

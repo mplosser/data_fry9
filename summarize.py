@@ -9,18 +9,14 @@ This script scans all FR Y-9C parquet files and generates a summary showing:
 - Overall statistics
 
 Usage:
-    # Summarize with default parallelization
-    python summarize.py --input-dir data/processed
+    # Summarize with default settings (uses data/processed)
+    python summarize.py
 
     # Save summary to CSV
-    python summarize.py \\
-        --input-dir data/processed \\
-        --output-csv fry9c_summary.csv
+    python summarize.py --output-csv fry9c_summary.csv
 
     # Disable parallelization
-    python summarize.py \\
-        --input-dir data/processed \\
-        --no-parallel
+    python summarize.py --no-parallel
 """
 
 import pandas as pd
@@ -62,14 +58,25 @@ def analyze_file(file_path_str):
         # Get file size
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
 
+        # Get filer type counts
+        filer_counts = {}
+        if 'FILER_TYPE' in df.columns:
+            filer_counts = df['FILER_TYPE'].value_counts().to_dict()
+
+        # Count metadata columns (RSSD_ID, REPORTING_PERIOD, FILER_TYPE)
+        metadata_cols = 3 if 'FILER_TYPE' in df.columns else 2
+
         return {
             'quarter': quarter_str,
             'date': reporting_period,
             'bhcs': len(df),
-            'variables': len(df.columns) - 2,  # Exclude RSSD_ID and REPORTING_PERIOD
+            'variables': len(df.columns) - metadata_cols,
             'total_columns': len(df.columns),
             'size_mb': file_size_mb,
-            'file': file_path.name
+            'file': file_path.name,
+            'y9c': filer_counts.get('FR_Y9C', 0),
+            'y9lp': filer_counts.get('FR_Y9LP', 0),
+            'y9sp': filer_counts.get('FR_Y9SP', 0),
         }
 
     except Exception as e:
@@ -83,26 +90,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Generate summary
-    python summarize.py --input-dir data/processed
+  # Generate summary with defaults (uses data/processed)
+  python summarize.py
 
   # Save to CSV
-  python summarize.py \\
-      --input-dir data/processed \\
-      --output-csv fry9c_summary.csv
+  python summarize.py --output-csv fry9c_summary.csv
 
   # Disable parallelization (for low-memory systems)
-  python summarize.py \\
-      --input-dir data/processed \\
-      --no-parallel
+  python summarize.py --no-parallel
+
+  # Use custom directory
+  python summarize.py --input-dir /path/to/parquet
         """
     )
 
     parser.add_argument(
         '--input-dir',
         type=str,
-        required=True,
-        help='Directory containing parquet files'
+        default='data/processed',
+        help='Directory containing parquet files (default: data/processed)'
     )
 
     parser.add_argument(
@@ -204,12 +210,24 @@ Examples:
 
     # Print summary table
     print()
-    print(f"{'Quarter':<8} {'Date':<12} {'BHCs':>7} {'Variables':>10} {'Size (MB)':>10}")
-    print("-" * 8 + " " + "-" * 12 + " " + "-" * 7 + " " + "-" * 10 + " " + "-" * 10)
+    # Check if filer type data is available
+    has_filer_types = 'y9c' in df_summary.columns and df_summary['y9c'].sum() > 0
 
-    for _, row in df_summary.iterrows():
-        print(f"{row['quarter']:<8} {row['date'].strftime('%Y-%m-%d'):<12} "
-              f"{row['bhcs']:>7,} {row['variables']:>10,} {row['size_mb']:>10.1f}")
+    if has_filer_types:
+        print(f"{'Quarter':<8} {'Date':<12} {'Total':>6} {'Y-9C':>6} {'Y-9LP':>6} {'Y-9SP':>6} {'Vars':>6} {'MB':>8}")
+        print("-" * 8 + " " + "-" * 12 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 8)
+
+        for _, row in df_summary.iterrows():
+            print(f"{row['quarter']:<8} {row['date'].strftime('%Y-%m-%d'):<12} "
+                  f"{row['bhcs']:>6,} {row['y9c']:>6,} {row['y9lp']:>6,} {row['y9sp']:>6,} "
+                  f"{row['variables']:>6,} {row['size_mb']:>8.1f}")
+    else:
+        print(f"{'Quarter':<8} {'Date':<12} {'BHCs':>7} {'Variables':>10} {'Size (MB)':>10}")
+        print("-" * 8 + " " + "-" * 12 + " " + "-" * 7 + " " + "-" * 10 + " " + "-" * 10)
+
+        for _, row in df_summary.iterrows():
+            print(f"{row['quarter']:<8} {row['date'].strftime('%Y-%m-%d'):<12} "
+                  f"{row['bhcs']:>7,} {row['variables']:>10,} {row['size_mb']:>10.1f}")
 
     # Overall statistics
     print("\n" + "="*80)
@@ -220,7 +238,14 @@ Examples:
     print(f"BHCs (avg): {df_summary['bhcs'].mean():,.0f}")
     print(f"BHCs (min): {df_summary['bhcs'].min():,}")
     print(f"BHCs (max): {df_summary['bhcs'].max():,}")
-    print(f"Variables (avg): {df_summary['variables'].mean():.0f}")
+
+    if has_filer_types:
+        print(f"\nFiler Type Breakdown (avg per quarter):")
+        print(f"  FR Y-9C  (Quarterly):      {df_summary['y9c'].mean():>6.0f}")
+        print(f"  FR Y-9LP (Quarterly):      {df_summary['y9lp'].mean():>6.0f}")
+        print(f"  FR Y-9SP (Semi-annual):    {df_summary['y9sp'].mean():>6.0f}")
+
+    print(f"\nVariables (avg): {df_summary['variables'].mean():.0f}")
     print(f"Variables (min): {df_summary['variables'].min()}")
     print(f"Variables (max): {df_summary['variables'].max()}")
     print(f"Total size: {df_summary['size_mb'].sum():.1f} MB")
