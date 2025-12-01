@@ -143,7 +143,7 @@ python parse.py --input-dir /path/to/csvs --output-dir /path/to/output
 ## Repository Structure
 
 ```
-data_fry9c/
+data_fry9/
 ├── README.md                     # This file
 ├── requirements.txt              # Python dependencies
 ├── .gitignore                    # Git exclusions
