@@ -121,6 +121,7 @@ data/processed/
 | `download.py` | Download Chicago Fed data (1986-2021) | URLs | CSV files | ~2-3 min |
 | `parse.py` | Extract ZIPs & parse CSV to parquet (parallel) | ZIP/CSV files | Parquet files by type | ~1-2 min (160 files) |
 | `summarize.py` | Generate quarterly breakdown by filer type | Parquet files | Summary table | ~5-10 sec (390+ files) |
+| `cleanup.py` | Remove raw/processed files to conserve space | File paths | - | Instant |
 
 **Parallelization Options** (available for `parse.py`, `summarize.py`):
 - **Default**: Uses all CPU cores for parallel processing
@@ -144,6 +145,21 @@ python parse.py --no-parallel
 python parse.py --input-dir /path/to/csvs --output-dir /path/to/output
 ```
 
+**Cleanup Options** (`cleanup.py`):
+```bash
+# Remove extracted CSVs only (keeps ZIPs as source)
+python cleanup.py --extracted
+
+# Remove all raw files (CSVs and ZIPs)
+python cleanup.py --raw
+
+# Remove processed parquet files
+python cleanup.py --processed
+
+# Preview what would be deleted (dry run)
+python cleanup.py --raw --dry-run
+```
+
 ## Repository Structure
 
 ```
@@ -155,7 +171,8 @@ data_fry9/
 │
 ├── download.py                   # Download FR Y-9C data
 ├── parse.py                      # CSV to parquet (parallel)
-└── summarize.py                  # Data audit
+├── summarize.py                  # Data audit
+└── cleanup.py                    # Remove files to save space
 ```
 
 ## Data Quality Notes

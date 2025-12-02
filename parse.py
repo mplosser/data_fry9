@@ -36,7 +36,7 @@ import multiprocessing
 import re
 
 
-def extract_zip_files(input_dir: Path) -> int:
+def extract_zip_files(input_dir: Path) -> list:
     """
     Extract ZIP files in the input directory.
 
@@ -46,14 +46,14 @@ def extract_zip_files(input_dir: Path) -> int:
         input_dir: Directory containing ZIP files
 
     Returns:
-        Number of ZIP files extracted
+        List of extracted CSV file paths
     """
     zip_files = list(input_dir.glob('BHCF*.zip')) + list(input_dir.glob('bhcf*.zip'))
 
     if not zip_files:
-        return 0
+        return []
 
-    extracted_count = 0
+    extracted_files = []
 
     for zip_path in zip_files:
         try:
@@ -107,14 +107,14 @@ def extract_zip_files(input_dir: Path) -> int:
 
                 csv_size_mb = csv_path.stat().st_size / (1024 * 1024)
                 print(f"  Extracted to {csv_filename} ({csv_size_mb:.2f} MB)")
-                extracted_count += 1
+                extracted_files.append(csv_path)
 
         except zipfile.BadZipFile:
             print(f"ERROR: {zip_path.name} is not a valid ZIP file")
         except Exception as e:
             print(f"ERROR extracting {zip_path.name}: {e}")
 
-    return extracted_count
+    return extracted_files
 
 
 def extract_quarter_from_filename(filename):
@@ -412,9 +412,9 @@ Output Format:
 
     # Extract ZIP files first (if any)
     print("Checking for ZIP files to extract...")
-    extracted_count = extract_zip_files(input_dir)
-    if extracted_count > 0:
-        print(f"Extracted {extracted_count} ZIP file(s)\n")
+    extracted_files = extract_zip_files(input_dir)
+    if extracted_files:
+        print(f"Extracted {len(extracted_files)} ZIP file(s)\n")
     else:
         print("No ZIP files found to extract\n")
 

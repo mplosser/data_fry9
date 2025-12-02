@@ -21,6 +21,10 @@ python parse.py
 
 # Verify/summarize parsed data
 python summarize.py
+
+# Cleanup to conserve disk space
+python cleanup.py --extracted  # Remove extracted CSVs (keeps ZIPs)
+python cleanup.py --raw        # Remove all raw files
 ```
 
 ### Script Options
