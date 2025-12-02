@@ -3,13 +3,15 @@
 Automated pipeline for downloading and processing FR Y-9 data (1986-2025).
 
 ## Overview
-Downloads raw data and converts it to parquet format. Automatically handles ZIP file extraction for manually downloaded FFIEC data.
+Downloads raw data, separates by filer type, and converts to parquet format. Automatically handles ZIP file extraction for manually downloaded FFIEC data.
 
 **Data Coverage:**
 - **Quarters**: 1986 Q3 - Present
-- **Frequency**: Quarterly
-- **Entities**: Y-9C, Y-9LP and Y-9SP files (400-6,000 total per quarter)
-- **Variables**: 550-2,500 variables per quarter
+- **Filer Types**:
+  - FR Y-9C: Quarterly (Q1, Q2, Q3, Q4) - ~350-400 filers
+  - FR Y-9LP: Quarterly (Q1, Q2, Q3, Q4) - ~60-70 filers
+  - FR Y-9SP: Semi-annual (Q2, Q4 only) - ~3,400-5,500 filers
+- **Variables**: 120-1,600 per filer type (after efficient filtering by prefix)
 
 ## Quick Start
 
@@ -35,7 +37,7 @@ python download.py
 # Output: CSV files in data/raw/
 ```
 
-**Note**: 2021 Q2+ requires manual download from [FFIEC](https://www.ffiec.gov/npw/FinancialReport/FinancialDataDownload). Simply download the ZIP files to `data/raw/` - extraction is automatic.
+**Note**: 2021 Q2+ requires manual download from [FFIEC](https://www.ffiec.gov/npw/FinancialReport/FinancialDataDownload). Simply download the ZIP files to `data/raw/`.
 
 ### 2. Parse to Parquet
 
@@ -57,12 +59,15 @@ python parse.py
 ### 3. Verify Data
 
 ```bash
-# Generate summary (uses data/processed by default)
+# Generate quarterly breakdown summary (uses data/processed by default)
 python summarize.py
-
-# Save summary to CSV
-python summarize.py --output-csv fry9c_summary.csv
 ```
+
+The summary script provides:
+- Quarterly breakdown showing filer counts and variable counts for each type (Y-9C, Y-9LP, Y-9SP)
+- Clear visualization of semi-annual filing pattern for Y-9SP (Q2 & Q4 only shown as data, Q1 & Q3 shown as dashes)
+- Summary statistics for each filer type (quarters, average filers, average variables, total size)
+- Overall coverage statistics across all filer types
 
 ## Data Sources
 
@@ -75,33 +80,42 @@ FR Y-9C data comes from different sources depending on the period:
 
 ## Output Format
 
-All data is saved as parquet files in `data/processed/`:
+Data is organized by filer type in separate subdirectories under `data/processed/`:
 
 ```
 data/processed/
-├── 1986Q3.parquet
-├── 1986Q4.parquet
-├── ...
-├── 2025Q3.parquet
+├── y_9c/                    # FR Y-9C filers (quarterly)
+│   ├── 1986Q3.parquet
+│   ├── 1986Q4.parquet
+│   ├── ...
+│   └── 2025Q3.parquet
+├── y_9lp/                   # FR Y-9LP filers (quarterly)
+│   ├── 1986Q3.parquet
+│   ├── 1986Q4.parquet
+│   ├── ...
+│   └── 2025Q3.parquet
+└── y_9sp/                   # FR Y-9SP filers (semi-annual)
+    ├── 1986Q4.parquet       # Q2 & Q4 only
+    ├── 1987Q2.parquet
+    ├── 1987Q4.parquet
+    ├── ...
+    └── 2025Q2.parquet
 ```
 
-**File Structure:**
-- **Rows**: One per bank holding company
+**File Structure (each parquet file):**
+- **Rows**: One per bank holding company of that filer type
 - **Columns**:
   - `RSSD_ID` - RSSD identifier (integer)
   - `REPORTING_PERIOD` - Quarter end date (datetime)
-  - `FILER_TYPE` - Filing form type (FR_Y9C, FR_Y9LP, or FR_Y9SP)
-  - RSSD#### - Identification codes
-  - BHCK#### - FR Y-9C variables (standard quarterly)
-  - BHCP#### - FR Y-9LP variables (large/complex quarterly)
-  - BHSP#### - FR Y-9SP variables (smaller semi-annual)
-  - Additional variables (alphabetical)
+  - Variable columns specific to filer type:
+    - **y_9c/**: BHCK#### variables only (~1,600 columns)
+    - **y_9lp/**: BHCP#### variables only (~174 columns)
+    - **y_9sp/**: BHSP#### variables only (~126 columns)
 
-**Coverage:**
-- ~160 quarters (1986 Q3 - 2025+)
-- **Q1 & Q3**: 400-500 BHCs (large institutions filing quarterly)
-- **Q2 & Q4**: 3,900-6,000 BHCs (all institutions - semi-annual + quarterly filers)
-- Complete data with no filtering or transformations
+**Coverage by Filer Type:**
+- **FR Y-9C** (y_9c/): ~350-400 filers per quarter, all quarters (Q1, Q2, Q3, Q4)
+- **FR Y-9LP** (y_9lp/): ~60-70 filers per quarter, all quarters (Q1, Q2, Q3, Q4)
+- **FR Y-9SP** (y_9sp/): ~3,400-5,500 filers per quarter, semi-annual only (Q2, Q4)
 
 ## Pipeline Scripts
 
@@ -110,8 +124,8 @@ data/processed/
 | Script | Purpose | Input | Output | Performance |
 |--------|---------|-------|--------|-------------|
 | `download.py` | Download Chicago Fed data (1986-2021) | URLs | CSV files | ~2-3 min |
-| `parse.py` | Extract ZIPs & parse CSV to parquet (parallel) | ZIP/CSV files | Parquet files | ~1-2 min (160 files) |
-| `summarize.py` | Summarize parsed data | Parquet files | Summary table | ~5-10 sec (160 files) |
+| `parse.py` | Extract ZIPs & parse CSV to parquet (parallel) | ZIP/CSV files | Parquet files by type | ~1-2 min (160 files) |
+| `summarize.py` | Generate quarterly breakdown by filer type | Parquet files | Summary table | ~5-10 sec (390+ files) |
 
 **Parallelization Options** (available for `parse.py`, `summarize.py`):
 - **Default**: Uses all CPU cores for parallel processing
@@ -154,19 +168,19 @@ data_fry9/
 
 The number of BHCs varies significantly by quarter due to regulatory filing requirements. There are **three types of filers**:
 
-| Form Type | Description | Filing Frequency | Typical Count | Column Prefix |
-|-----------|-------------|------------------|---------------|---------------|
-| **FR Y-9C** | Standard quarterly report | Quarterly (all 4 quarters) | ~380-400 | BHCK#### |
-| **FR Y-9LP** | Large/complex institutions | Quarterly (all 4 quarters) | ~60-70 | BHCP#### |
-| **FR Y-9SP** | Smaller institutions | Semi-annual (Q2 & Q4 only) | ~3,400-5,500 | BHSP#### |
+| Form Type | Description | Filing Frequency | Typical Count | Column Prefix | Output Directory |
+|-----------|-------------|------------------|---------------|---------------|------------------|
+| **FR Y-9C** | Standard quarterly report | Quarterly (all 4 quarters) | ~350-400 | BHCK#### | y_9c/ |
+| **FR Y-9LP** | Large/complex institutions | Quarterly (all 4 quarters) | ~60-70 | BHCP#### | y_9lp/ |
+| **FR Y-9SP** | Smaller institutions | Semi-annual (Q2 & Q4 only) | ~3,400-5,500 | BHSP#### | y_9sp/ |
 
-**Resulting patterns by quarter:**
-- **Q1 & Q3**: ~400-500 BHCs total (Y-9C + Y-9LP quarterly filers only)
-- **Q2 & Q4**: ~4,000-6,000 BHCs total (Y-9C + Y-9LP + Y-9SP all filers)
+**Filing patterns by quarter:**
+- **Q1 & Q3**: Only Y-9C (~350-400) and Y-9LP (~60-70) file quarterly
+- **Q2 & Q4**: All filer types - Y-9C, Y-9LP, and Y-9SP (~4,000-6,000 total)
 
 This pattern is consistent across all years from 1986 onwards and is **not an error** - it reflects the Federal Reserve's filing requirements.
 
-**FILER_TYPE Column**: The parse script automatically classifies each BHC into one of these three types based on which column prefix (BHCK/BHCP/BHSP) has the most populated fields in their filing.
+**Data Organization**: The parse script automatically classifies each BHC into one of these three types based on which column prefix (BHCK/BHCP/BHSP) has the most populated fields, then saves each filer type to its own subdirectory with only the relevant variables for that type.
 
 ### File Format Changes
 

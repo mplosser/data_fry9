@@ -1,19 +1,16 @@
 """
-Summarize FR Y-9C parquet files.
+Summarize FR Y-9 parquet files by filer type.
 
-This script scans all FR Y-9C parquet files and generates a summary showing:
-- Coverage by quarter
-- Number of BHCs per quarter
-- Number of variables per quarter
+This script scans all FR Y-9 parquet files (organized by filer type) and generates:
+- Quarterly breakdown by filer type (Y-9C, Y-9LP, Y-9SP)
+- Number of filers per quarter by type
+- Number of variables per filer type
 - File sizes
-- Overall statistics
+- Overall statistics across all filer types
 
 Usage:
     # Summarize with default settings (uses data/processed)
     python summarize.py
-
-    # Save summary to CSV
-    python summarize.py --output-csv fry9c_summary.csv
 
     # Disable parallelization
     python summarize.py --no-parallel
@@ -27,16 +24,17 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 
 
-def analyze_file(file_path_str):
+def analyze_file(args_tuple):
     """
     Analyze a single parquet file.
 
     Args:
-        file_path_str: Path to parquet file as string
+        args_tuple: (file_path_str, filer_type)
 
     Returns:
         Dictionary with file info or None if error
     """
+    file_path_str, filer_type = args_tuple
     file_path = Path(file_path_str)
 
     try:
@@ -58,25 +56,18 @@ def analyze_file(file_path_str):
         # Get file size
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
 
-        # Get filer type counts
-        filer_counts = {}
-        if 'FILER_TYPE' in df.columns:
-            filer_counts = df['FILER_TYPE'].value_counts().to_dict()
-
-        # Count metadata columns (RSSD_ID, REPORTING_PERIOD, FILER_TYPE)
-        metadata_cols = 3 if 'FILER_TYPE' in df.columns else 2
+        # Count metadata columns (RSSD_ID, REPORTING_PERIOD)
+        metadata_cols = 2
 
         return {
             'quarter': quarter_str,
             'date': reporting_period,
-            'bhcs': len(df),
+            'filer_type': filer_type,
+            'filers': len(df),
             'variables': len(df.columns) - metadata_cols,
             'total_columns': len(df.columns),
             'size_mb': file_size_mb,
             'file': file_path.name,
-            'y9c': filer_counts.get('FR_Y9C', 0),
-            'y9lp': filer_counts.get('FR_Y9LP', 0),
-            'y9sp': filer_counts.get('FR_Y9SP', 0),
         }
 
     except Exception as e:
@@ -86,21 +77,20 @@ def analyze_file(file_path_str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Summarize FR Y-9C parquet files',
+        description='Summarize FR Y-9 parquet files by filer type',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Generate summary with defaults (uses data/processed)
   python summarize.py
 
-  # Save to CSV
-  python summarize.py --output-csv fry9c_summary.csv
-
   # Disable parallelization (for low-memory systems)
   python summarize.py --no-parallel
 
   # Use custom directory
   python summarize.py --input-dir /path/to/parquet
+
+Note: Expects subdirectories y_9c/, y_9lp/, y_9sp/ under input directory
         """
     )
 
@@ -124,11 +114,6 @@ Examples:
         help='Disable parallel processing'
     )
 
-    parser.add_argument(
-        '--output-csv',
-        type=str,
-        help='Save summary to CSV file'
-    )
 
     args = parser.parse_args()
 
@@ -139,11 +124,19 @@ Examples:
         print(f"ERROR: Directory does not exist: {input_dir}")
         sys.exit(1)
 
-    # Find parquet files
-    parquet_files = sorted(input_dir.glob('*.parquet'))
+    # Find parquet files in subdirectories (y_9c, y_9lp, y_9sp)
+    filer_types = ['y_9c', 'y_9lp', 'y_9sp']
+    files_to_process = []
 
-    if not parquet_files:
-        print(f"No parquet files found in {input_dir}")
+    for filer_type in filer_types:
+        filer_dir = input_dir / filer_type
+        if filer_dir.exists():
+            for pq_file in sorted(filer_dir.glob('*.parquet')):
+                files_to_process.append((str(pq_file), filer_type))
+
+    if not files_to_process:
+        print(f"No parquet files found in {input_dir}/{{y_9c,y_9lp,y_9sp}}")
+        print("Note: Expected directory structure with subdirectories for each filer type")
         return 1
 
     # Determine worker count
@@ -155,10 +148,10 @@ Examples:
         workers = multiprocessing.cpu_count()
 
     print("="*80)
-    print("FR Y-9C DATA SUMMARY")
+    print("FR Y-9 DATA SUMMARY")
     print("="*80)
     print(f"Directory: {input_dir}")
-    print(f"Files found: {len(parquet_files)}")
+    print(f"Files found: {len(files_to_process)}")
     print(f"Parallel workers: {workers}")
     print("="*80)
 
@@ -168,11 +161,11 @@ Examples:
     if workers == 1:
         # Sequential processing
         print("\nAnalyzing files sequentially...")
-        for file_path in parquet_files:
-            result = analyze_file(str(file_path))
+        for file_args in files_to_process:
+            result = analyze_file(file_args)
             if result:
                 results.append(result)
-                print(f"  Processed {result['quarter']}")
+                print(f"  Processed {result['filer_type']}/{result['quarter']}")
 
     else:
         # Parallel processing
@@ -180,8 +173,8 @@ Examples:
 
         with ProcessPoolExecutor(max_workers=workers) as executor:
             future_to_file = {
-                executor.submit(analyze_file, str(f)): f
-                for f in parquet_files
+                executor.submit(analyze_file, f): f
+                for f in files_to_process
             }
 
             completed = 0
@@ -194,8 +187,8 @@ Examples:
                         results.append(result)
 
                     # Progress update
-                    if completed % 20 == 0 or completed == len(parquet_files):
-                        print(f"  Processed {completed}/{len(parquet_files)} files...")
+                    if completed % 20 == 0 or completed == len(files_to_process):
+                        print(f"  Processed {completed}/{len(files_to_process)} files...")
 
                 except Exception as e:
                     print(f"  Error: {e}")
@@ -206,55 +199,69 @@ Examples:
 
     # Create summary DataFrame
     df_summary = pd.DataFrame(results)
-    df_summary = df_summary.sort_values('quarter')
+    df_summary = df_summary.sort_values(['quarter', 'filer_type'])
 
-    # Print summary table
-    print()
-    # Check if filer type data is available
-    has_filer_types = 'y9c' in df_summary.columns and df_summary['y9c'].sum() > 0
+    # Pivot to show filers by quarter and type
+    pivot_filers = df_summary.pivot(index='quarter', columns='filer_type', values='filers')
+    pivot_vars = df_summary.pivot(index='quarter', columns='filer_type', values='variables')
 
-    if has_filer_types:
-        print(f"{'Quarter':<8} {'Date':<12} {'Total':>6} {'Y-9C':>6} {'Y-9LP':>6} {'Y-9SP':>6} {'Vars':>6} {'MB':>8}")
-        print("-" * 8 + " " + "-" * 12 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 6 + " " + "-" * 8)
+    # Get date for each quarter (from first filer type)
+    dates = df_summary.groupby('quarter')['date'].first()
 
-        for _, row in df_summary.iterrows():
-            print(f"{row['quarter']:<8} {row['date'].strftime('%Y-%m-%d'):<12} "
-                  f"{row['bhcs']:>6,} {row['y9c']:>6,} {row['y9lp']:>6,} {row['y9sp']:>6,} "
-                  f"{row['variables']:>6,} {row['size_mb']:>8.1f}")
-    else:
-        print(f"{'Quarter':<8} {'Date':<12} {'BHCs':>7} {'Variables':>10} {'Size (MB)':>10}")
-        print("-" * 8 + " " + "-" * 12 + " " + "-" * 7 + " " + "-" * 10 + " " + "-" * 10)
+    # Combine into display dataframe
+    display_df = pd.DataFrame({
+        'Date': dates,
+        'Y-9C': pivot_filers.get('y_9c', 0).fillna(0).astype(int),
+        'Y-9LP': pivot_filers.get('y_9lp', 0).fillna(0).astype(int),
+        'Y-9SP': pivot_filers.get('y_9sp', 0).fillna(0).astype(int),
+        'Y-9C_vars': pivot_vars.get('y_9c', 0).fillna(0).astype(int),
+        'Y-9LP_vars': pivot_vars.get('y_9lp', 0).fillna(0).astype(int),
+        'Y-9SP_vars': pivot_vars.get('y_9sp', 0).fillna(0).astype(int),
+    })
 
-        for _, row in df_summary.iterrows():
-            print(f"{row['quarter']:<8} {row['date'].strftime('%Y-%m-%d'):<12} "
-                  f"{row['bhcs']:>7,} {row['variables']:>10,} {row['size_mb']:>10.1f}")
+    # Print quarterly breakdown
+    print("\n" + "="*80)
+    print("QUARTERLY BREAKDOWN BY FILER TYPE")
+    print("="*80)
+    print(f"{'Quarter':<8} {'Date':<12} {'Y-9C':>7} {'Y-9LP':>7} {'Y-9SP':>7} | {'Y-9C':>5} {'Y-9LP':>5} {'Y-9SP':>5}")
+    print(f"{'':8} {'':12} {'Filers':>7} {'Filers':>7} {'Filers':>7} | {'Vars':>5} {'Vars':>5} {'Vars':>5}")
+    print("-" * 8 + " " + "-" * 12 + " " + "-" * 7 + " " + "-" * 7 + " " + "-" * 7 + " | " + "-" * 5 + " " + "-" * 5 + " " + "-" * 5)
+
+    for quarter, row in display_df.iterrows():
+        y9c = f"{row['Y-9C']:,}" if row['Y-9C'] > 0 else "-"
+        y9lp = f"{row['Y-9LP']:,}" if row['Y-9LP'] > 0 else "-"
+        y9sp = f"{row['Y-9SP']:,}" if row['Y-9SP'] > 0 else "-"
+        y9c_v = f"{row['Y-9C_vars']:,}" if row['Y-9C_vars'] > 0 else "-"
+        y9lp_v = f"{row['Y-9LP_vars']:,}" if row['Y-9LP_vars'] > 0 else "-"
+        y9sp_v = f"{row['Y-9SP_vars']:,}" if row['Y-9SP_vars'] > 0 else "-"
+
+        print(f"{quarter:<8} {row['Date'].strftime('%Y-%m-%d'):<12} "
+              f"{y9c:>7} {y9lp:>7} {y9sp:>7} | {y9c_v:>5} {y9lp_v:>5} {y9sp_v:>5}")
 
     # Overall statistics
     print("\n" + "="*80)
-    print("OVERALL STATISTICS")
+    print("SUMMARY STATISTICS")
     print("="*80)
-    print(f"Total quarters: {len(df_summary)}")
-    print(f"Date range: {df_summary['date'].min().strftime('%Y-%m-%d')} to {df_summary['date'].max().strftime('%Y-%m-%d')}")
-    print(f"BHCs (avg): {df_summary['bhcs'].mean():,.0f}")
-    print(f"BHCs (min): {df_summary['bhcs'].min():,}")
-    print(f"BHCs (max): {df_summary['bhcs'].max():,}")
+    print(f"Total quarters: {len(display_df)}")
+    print(f"Date range: {dates.min().strftime('%Y-%m-%d')} to {dates.max().strftime('%Y-%m-%d')}")
+    print(f"Total files: {len(df_summary)}")
 
-    if has_filer_types:
-        print(f"\nFiler Type Breakdown (avg per quarter):")
-        print(f"  FR Y-9C  (Quarterly):      {df_summary['y9c'].mean():>6.0f}")
-        print(f"  FR Y-9LP (Quarterly):      {df_summary['y9lp'].mean():>6.0f}")
-        print(f"  FR Y-9SP (Semi-annual):    {df_summary['y9sp'].mean():>6.0f}")
+    print(f"\nFiler Type Breakdown:")
+    for filer_type in ['y_9c', 'y_9lp', 'y_9sp']:
+        df_type = df_summary[df_summary['filer_type'] == filer_type]
+        if len(df_type) > 0:
+            filer_names = {
+                'y_9c': 'FR Y-9C',
+                'y_9lp': 'FR Y-9LP',
+                'y_9sp': 'FR Y-9SP'
+            }
+            print(f"  {filer_names[filer_type]:<10} {len(df_type):>3} quarters, "
+                  f"avg {df_type['filers'].mean():>6.0f} filers, "
+                  f"avg {df_type['variables'].mean():>5.0f} vars, "
+                  f"{df_type['size_mb'].sum():>6.1f} MB")
 
-    print(f"\nVariables (avg): {df_summary['variables'].mean():.0f}")
-    print(f"Variables (min): {df_summary['variables'].min()}")
-    print(f"Variables (max): {df_summary['variables'].max()}")
-    print(f"Total size: {df_summary['size_mb'].sum():.1f} MB")
+    print(f"\nTotal size: {df_summary['size_mb'].sum():.1f} MB")
     print("="*80)
-
-    # Save to CSV if requested
-    if args.output_csv:
-        df_summary.to_csv(args.output_csv, index=False)
-        print(f"\nSummary saved to: {args.output_csv}")
 
     return 0
 

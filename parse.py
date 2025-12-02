@@ -155,7 +155,7 @@ def extract_quarter_from_filename(filename):
 
 def process_fry9c_csv(csv_path):
     """
-    Parse FR Y-9C CSV file.
+    Parse FR Y-9C CSV file and split by filer type.
 
     Handles:
     - Auto-detection of delimiter (comma for old Chicago Fed, caret for new FFIEC)
@@ -163,13 +163,15 @@ def process_fry9c_csv(csv_path):
     - Column name standardization (uppercase)
     - RSSD9001 → RSSD_ID renaming
     - REPORTING_PERIOD addition
-    - Numeric conversion
+    - Splitting by filer type (Y-9C, Y-9LP, Y-9SP)
+    - Retaining only relevant variables for each filer type
 
     Args:
         csv_path: Path to CSV file
 
     Returns:
-        Standardized DataFrame
+        Dictionary with keys 'y_9c', 'y_9lp', 'y_9sp' containing DataFrames
+        Each DataFrame contains only relevant columns for that filer type
     """
     # Auto-detect delimiter
     # Chicago Fed files (pre-2021 Q2) use comma
@@ -221,7 +223,7 @@ def process_fry9c_csv(csv_path):
     reporting_period = pd.Timestamp(year=year, month=quarter*3, day=1) + pd.offsets.QuarterEnd(0)
     df['REPORTING_PERIOD'] = reporting_period
 
-    # Determine filer type based on which prefix has most non-null values
+    # Identify columns by prefix
     # BHCK = FR Y-9C (quarterly filers)
     # BHCP = FR Y-9LP (quarterly, large/complex)
     # BHSP = FR Y-9SP (semi-annual, smaller institutions)
@@ -229,6 +231,7 @@ def process_fry9c_csv(csv_path):
     bhcp_cols = [c for c in df.columns if c.startswith('BHCP')]
     bhsp_cols = [c for c in df.columns if c.startswith('BHSP')]
 
+    # Count non-null values for each prefix per row to determine filer type
     df['bhck_count'] = df[bhck_cols].notna().sum(axis=1)
     df['bhcp_count'] = df[bhcp_cols].notna().sum(axis=1)
     df['bhsp_count'] = df[bhsp_cols].notna().sum(axis=1)
@@ -243,12 +246,34 @@ def process_fry9c_csv(csv_path):
     df['FILER_TYPE'] = df.apply(classify_filer, axis=1)
     df = df.drop(columns=['bhck_count', 'bhcp_count', 'bhsp_count'])
 
-    # Standardize column order
-    metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD', 'FILER_TYPE']
-    data_cols = sorted([c for c in df.columns if c not in metadata_cols])
-    df = df[metadata_cols + data_cols]
+    # Split by filer type and retain only relevant columns
+    result = {}
 
-    return df
+    # Y-9C filers: keep BHCK columns
+    y9c_df = df[df['FILER_TYPE'] == 'FR_Y9C'].copy()
+    if len(y9c_df) > 0:
+        metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD']
+        relevant_cols = [c for c in bhck_cols if c in y9c_df.columns]
+        y9c_df = y9c_df[metadata_cols + relevant_cols]
+        result['y_9c'] = y9c_df
+
+    # Y-9LP filers: keep BHCP columns
+    y9lp_df = df[df['FILER_TYPE'] == 'FR_Y9LP'].copy()
+    if len(y9lp_df) > 0:
+        metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD']
+        relevant_cols = [c for c in bhcp_cols if c in y9lp_df.columns]
+        y9lp_df = y9lp_df[metadata_cols + relevant_cols]
+        result['y_9lp'] = y9lp_df
+
+    # Y-9SP filers: keep BHSP columns
+    y9sp_df = df[df['FILER_TYPE'] == 'FR_Y9SP'].copy()
+    if len(y9sp_df) > 0:
+        metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD']
+        relevant_cols = [c for c in bhsp_cols if c in y9sp_df.columns]
+        y9sp_df = y9sp_df[metadata_cols + relevant_cols]
+        result['y_9sp'] = y9sp_df
+
+    return result
 
 
 def process_file_wrapper(args_tuple):
@@ -273,19 +298,27 @@ def process_file_wrapper(args_tuple):
         if quarter_str is None:
             return ('error', None, f"Could not extract quarter from {file_path.name}")
 
-        # Check if already processed
-        output_path = output_dir / f"{quarter_str}.parquet"
-        if output_path.exists():
-            return ('skipped', quarter_str, "Already exists")
+        # Process CSV - returns dictionary of DataFrames by filer type
+        filer_dfs = process_fry9c_csv(file_path)
 
-        # Process CSV
-        df = process_fry9c_csv(file_path)
+        if not filer_dfs:
+            return ('error', quarter_str, "No data found for any filer type")
 
-        # Save as parquet
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(output_path, index=False, compression='snappy')
+        # Save separate parquet files for each filer type
+        results = []
+        for filer_type, df in filer_dfs.items():
+            # Create subdirectory for filer type
+            filer_output_dir = output_dir / filer_type
+            filer_output_dir.mkdir(parents=True, exist_ok=True)
 
-        return ('success', quarter_str, f"{len(df):,} BHCs, {len(df.columns)-2} variables")
+            # Save parquet file
+            output_path = filer_output_dir / f"{quarter_str}.parquet"
+            df.to_parquet(output_path, index=False, compression='snappy')
+
+            results.append(f"{filer_type}: {len(df):,} filers, {len(df.columns)-2} vars")
+
+        message = " | ".join(results)
+        return ('success', quarter_str, message)
 
     except Exception as e:
         import traceback
@@ -510,6 +543,10 @@ Output Format:
     print("="*80)
     print("\nVerify the parsed data:")
     print(f"  python summarize.py --input-dir {output_dir}")
+    print("\nOutput structure:")
+    print(f"  {output_dir}/y_9c/    - FR Y-9C filers (BHCK variables)")
+    print(f"  {output_dir}/y_9lp/   - FR Y-9LP filers (BHCP variables)")
+    print(f"  {output_dir}/y_9sp/   - FR Y-9SP filers (BHSP variables)")
 
     return 0 if not failed else 1
 
