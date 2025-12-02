@@ -29,6 +29,7 @@ api_key
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
