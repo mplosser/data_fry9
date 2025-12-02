@@ -51,11 +51,6 @@ python parse.py --workers 4
 
 **Note**: The parse script automatically extracts any `BHCF*.zip` files found in `data/raw/` before parsing.
 
-```bash
-rm -rf data/processed/*.parquet
-python parse.py
-```
-
 ### 3. Verify Data
 
 ```bash
@@ -154,6 +149,7 @@ python parse.py --input-dir /path/to/csvs --output-dir /path/to/output
 ```
 data_fry9/
 ├── README.md                     # This file
+├── CLAUDE.md                     # Claude Code guidance
 ├── requirements.txt              # Python dependencies
 ├── .gitignore                    # Git exclusions
 │

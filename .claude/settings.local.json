@@ -8,7 +8,9 @@
       "Bash(python parse.py:*)",
       "Bash(python summarize.py:*)",
       "Bash(python:*)",
-      "Bash(dir dataraw*.csv /b)"
+      "Bash(dir dataraw*.csv /b)",
+      "Bash(dir /b \"c:\\Users\\Matthew\\OneDrive\\GitHub\\data_fry9\")",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
