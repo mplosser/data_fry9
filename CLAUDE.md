@@ -22,6 +22,8 @@ python 03_parse_dictionary.py     # Parse dictionary for FR Y-9 variables
 
 # Parse CSV to parquet (auto-extracts ZIPs, splits by filer type)
 python 04_parse_data.py
+# Use --force to re-parse after adding dictionary metadata
+python 04_parse_data.py --force
 
 # Verify/summarize parsed data
 python 05_summarize.py
@@ -34,6 +36,8 @@ python 06_cleanup.py --raw        # Remove all raw files
 ### Script Options
 - `04_parse_data.py --workers N` - limit parallel workers (for low-memory systems)
 - `04_parse_data.py --no-parallel` - disable parallelization
+- `04_parse_data.py --force` - re-process files even if outputs exist
+- `03_parse_dictionary.py --force` - re-generate dictionary even if exists
 - `01_download_data.py --start-year YYYY --end-year YYYY` - download specific date range
 
 ## Architecture

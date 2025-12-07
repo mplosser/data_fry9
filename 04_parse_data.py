@@ -25,6 +25,9 @@ Usage:
 
     # Disable parallelization
     python 04_parse_data.py --no-parallel
+
+    # Re-process all files (ignore existing outputs)
+    python 04_parse_data.py --force
 """
 
 import pandas as pd
@@ -357,12 +360,12 @@ def process_file_wrapper(args_tuple):
     Wrapper function for parallel processing.
 
     Args:
-        args_tuple: (file_path_str, output_dir_str, dict_path_str or None)
+        args_tuple: (file_path_str, output_dir_str, dict_path_str or None, force)
 
     Returns:
         Tuple of (status, quarter_str, message)
     """
-    file_path_str, output_dir_str, dict_path_str = args_tuple
+    file_path_str, output_dir_str, dict_path_str, force = args_tuple
 
     file_path = Path(file_path_str)
     output_dir = Path(output_dir_str)
@@ -374,6 +377,17 @@ def process_file_wrapper(args_tuple):
 
         if quarter_str is None:
             return ('error', None, f"Could not extract quarter from {file_path.name}")
+
+        # Check if all output files already exist (skip unless --force)
+        if not force:
+            all_exist = True
+            for filer_type in ['y_9c', 'y_9lp', 'y_9sp']:
+                output_path = output_dir / filer_type / f"{quarter_str}.parquet"
+                if not output_path.exists():
+                    all_exist = False
+                    break
+            if all_exist:
+                return ('skipped', quarter_str, "All output files already exist (use --force to re-process)")
 
         # Process CSV - returns dictionary of DataFrames by filer type
         filer_dfs = process_fry9c_csv(file_path)
@@ -424,6 +438,9 @@ Examples:
       --input-dir /path/to/csvs \\
       --output-dir /path/to/output
 
+  # Re-process all files (ignore existing outputs)
+  python 04_parse_data.py --force
+
 Features:
   - Automatically extracts BHCF*.zip files to CSV before parsing
   - Handles both manually downloaded ZIPs and automated downloads
@@ -473,6 +490,12 @@ Output Format:
         '--end-year',
         type=int,
         help='Only process files up to this year'
+    )
+
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Re-process files even if outputs already exist'
     )
 
     args = parser.parse_args()
@@ -544,6 +567,8 @@ Output Format:
         print(f"Data dictionary: {dict_path} (metadata will be applied)")
     else:
         print("Data dictionary: Not found (run 03_parse_dictionary.py to add metadata)")
+    if args.force:
+        print("Force mode: ON (will re-process existing files)")
     print("="*80)
 
     # Process files
@@ -555,7 +580,7 @@ Output Format:
         # Sequential processing
         print("\nProcessing sequentially...")
         for file_path in files_to_process:
-            status, quarter_str, message = process_file_wrapper((str(file_path), str(output_dir), dict_path_str))
+            status, quarter_str, message = process_file_wrapper((str(file_path), str(output_dir), dict_path_str, args.force))
 
             if status == 'success':
                 successful.append(quarter_str)
@@ -574,7 +599,7 @@ Output Format:
         with ProcessPoolExecutor(max_workers=workers) as executor:
             # Submit all tasks
             future_to_file = {
-                executor.submit(process_file_wrapper, (str(f), str(output_dir), dict_path_str)): f
+                executor.submit(process_file_wrapper, (str(f), str(output_dir), dict_path_str, args.force)): f
                 for f in files_to_process
             }
 

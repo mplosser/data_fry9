@@ -9,6 +9,7 @@ The output can be used to add metadata/descriptions to parquet files.
 Usage:
     python 03_parse_dictionary.py
     python 03_parse_dictionary.py --input-dir data/raw --output-dir data/processed
+    python 03_parse_dictionary.py --force  # Re-process even if outputs exist
 """
 
 import argparse
@@ -90,6 +91,11 @@ def parse_mdrm(input_path: Path, output_dir: Path) -> bool:
     df_filtered = df[df['Mnemonic'].isin(FR_Y9_MNEMONICS)].copy()
     print(f"\nFiltering to FR Y-9 mnemonics ({', '.join(FR_Y9_MNEMONICS)})...")
     print(f"  Entries after filter: {len(df_filtered):,}")
+
+    if len(df_filtered) == 0:
+        print("ERROR: No FR Y-9 variables found in MDRM dictionary")
+        print("Expected mnemonics: " + ", ".join(FR_Y9_MNEMONICS))
+        return False
 
     # Create variable name (Mnemonic + Item Code)
     df_filtered['Variable'] = df_filtered['Mnemonic'] + df_filtered['Item Code'].str.strip()
@@ -189,6 +195,7 @@ def main():
 Examples:
   python 03_parse_dictionary.py
   python 03_parse_dictionary.py --input-dir data/raw --output-dir data/processed
+  python 03_parse_dictionary.py --force  # Re-process even if outputs exist
 
 The script filters the MDRM to include only FR Y-9 related variables:
   - BHCK: FR Y-9C variables
@@ -215,6 +222,12 @@ Output files:
         help='Directory to save processed dictionary (default: data/processed)'
     )
 
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Re-process even if output files already exist'
+    )
+
     args = parser.parse_args()
 
     print("=" * 60)
@@ -224,6 +237,18 @@ Output files:
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
     input_path = input_dir / 'MDRM.csv'
+
+    # Check if output already exists (unless --force)
+    parquet_path = output_dir / 'data_dictionary.parquet'
+    csv_path = output_dir / 'data_dictionary.csv'
+
+    if not args.force and parquet_path.exists() and csv_path.exists():
+        print(f"\nOutput files already exist:")
+        print(f"  {parquet_path}")
+        print(f"  {csv_path}")
+        print("\nUse --force to re-process.")
+        print("=" * 60)
+        return 0
 
     success = parse_mdrm(input_path, output_dir)
 

@@ -24,7 +24,7 @@ Downloads raw data, separates by filer type, and converts to parquet format. Aut
 ```bash
 python 02_download_dictionary.py  # Download MDRM data dictionary
 python 03_parse_dictionary.py     # Parse dictionary for FR Y-9 variables
-python 04_parse_data.py           # Re-parse to add metadata
+python 04_parse_data.py --force   # Re-parse to add metadata
 ```
 
 ### Setup
@@ -136,6 +136,7 @@ data/processed/
 - **Default**: Uses all CPU cores for parallel processing
 - `--workers N`: Specify number of parallel workers (e.g., `--workers 4`)
 - `--no-parallel`: Disable parallel processing (slower but uses less memory)
+- `--force`: Re-process files even if outputs already exist
 - **Expected speedup**: 4-8x on multi-core CPUs
 
 **Examples**:
@@ -149,6 +150,9 @@ python 04_parse_data.py --workers 4
 
 # Disable parallelization
 python 04_parse_data.py --no-parallel
+
+# Re-process all files (ignore existing outputs)
+python 04_parse_data.py --force
 
 # Custom directories
 python 04_parse_data.py --input-dir /path/to/csvs --output-dir /path/to/output
