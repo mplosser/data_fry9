@@ -6,16 +6,16 @@ after parsing is complete.
 
 Usage:
     # Remove extracted CSVs (keeps ZIPs as source)
-    python cleanup.py --extracted
+    python 06_cleanup.py --extracted
 
     # Remove all raw files (CSVs and ZIPs)
-    python cleanup.py --raw
+    python 06_cleanup.py --raw
 
     # Remove processed parquet files
-    python cleanup.py --processed
+    python 06_cleanup.py --processed
 
     # Dry run (show what would be deleted)
-    python cleanup.py --extracted --dry-run
+    python 06_cleanup.py --extracted --dry-run
 """
 
 import argparse
@@ -141,19 +141,19 @@ def main():
         epilog="""
 Examples:
   # Remove extracted CSVs only (keeps ZIPs as source)
-  python cleanup.py --extracted
+  python 06_cleanup.py --extracted
 
   # Remove all raw files (CSVs and ZIPs)
-  python cleanup.py --raw
+  python 06_cleanup.py --raw
 
   # Remove processed parquet files
-  python cleanup.py --processed
+  python 06_cleanup.py --processed
 
   # Preview what would be deleted
-  python cleanup.py --extracted --dry-run
+  python 06_cleanup.py --extracted --dry-run
 
   # Clean everything
-  python cleanup.py --raw --processed
+  python 06_cleanup.py --raw --processed
         """
     )
 

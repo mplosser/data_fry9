@@ -11,13 +11,13 @@ File Format: CSV (comma-delimited)
 
 Usage:
     # Download all available quarters (1986 Q3 - 2021 Q1)
-    python download.py
+    python 01_download_data.py
 
     # Download specific date range
-    python download.py --start-year 2010 --start-quarter 1 --end-year 2020 --end-quarter 4
+    python 01_download_data.py --start-year 2010 --start-quarter 1 --end-year 2020 --end-quarter 4
 
     # Custom output directory
-    python download.py --output-dir data/raw
+    python 01_download_data.py --output-dir data/raw
 """
 
 import argparse
@@ -276,16 +276,16 @@ def main():
         epilog="""
 Examples:
   # Download all available quarters (1986 Q3 - 2021 Q1)
-    python download.py
+    python 01_download_data.py
 
   # Download specific date range
-    python download.py --start-year 2010 --start-quarter 1 --end-year 2020 --end-quarter 4
+    python 01_download_data.py --start-year 2010 --start-quarter 1 --end-year 2020 --end-quarter 4
 
   # Custom output directory
-    python download.py --output-dir data/raw
+    python 01_download_data.py --output-dir data/raw
 
   # Enable debug logging
-    python download.py --verbose
+    python 01_download_data.py --verbose
 
 Data Source:
   Chicago Fed: 1986 Q3 - 2021 Q1 (CSV files, comma-delimited)

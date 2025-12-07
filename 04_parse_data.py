@@ -6,27 +6,30 @@ standardized parquet format with parallelization support.
 
 Features:
 - Automatically extracts ZIP files (BHCF*.zip) before parsing
+- Applies data dictionary metadata to parquet columns (if available)
 - Handles CSV format: bhcfYYQQ.csv (e.g., bhcf2103.csv for 2021 Q1)
 - Removes separator rows that must be removed
 - RSSD9001 is the bank holding company identifier
 
 Usage:
     # Parse all files with default settings (uses data/raw -> data/processed)
-    python parse.py
+    python 04_parse_data.py
 
     # Specify custom directories
-    python parse.py \\
+    python 04_parse_data.py \\
         --input-dir data/raw \\
         --output-dir data/processed
 
     # Specify number of workers
-    python parse.py --workers 8
+    python 04_parse_data.py --workers 8
 
     # Disable parallelization
-    python parse.py --no-parallel
+    python 04_parse_data.py --no-parallel
 """
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import argparse
 import sys
 import zipfile
@@ -34,6 +37,79 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 import re
+
+
+# Global cache for data dictionary
+_DATA_DICTIONARY = None
+_DICTIONARY_PATH = None
+
+
+def load_data_dictionary(dict_path: Path) -> dict:
+    """
+    Load the data dictionary for variable descriptions.
+
+    Args:
+        dict_path: Path to data_dictionary.parquet
+
+    Returns:
+        Dictionary mapping variable names to descriptions
+    """
+    global _DATA_DICTIONARY, _DICTIONARY_PATH
+
+    # Return cached if already loaded
+    if _DATA_DICTIONARY is not None and _DICTIONARY_PATH == dict_path:
+        return _DATA_DICTIONARY
+
+    if not dict_path.exists():
+        return {}
+
+    try:
+        df = pd.read_parquet(dict_path)
+        # Create mapping: Variable -> ItemName (short description)
+        _DATA_DICTIONARY = dict(zip(df['Variable'], df['ItemName']))
+        _DICTIONARY_PATH = dict_path
+        return _DATA_DICTIONARY
+    except Exception:
+        return {}
+
+
+def write_parquet_with_metadata(df: pd.DataFrame, output_path: Path, dict_path: Path = None):
+    """
+    Write DataFrame to parquet with column descriptions as metadata.
+
+    Args:
+        df: DataFrame to write
+        output_path: Path for output parquet file
+        dict_path: Path to data dictionary (optional)
+    """
+    # Load dictionary if available
+    var_descriptions = {}
+    if dict_path:
+        var_descriptions = load_data_dictionary(dict_path)
+
+    # Convert to pyarrow Table
+    table = pa.Table.from_pandas(df, preserve_index=False)
+
+    # Add column metadata if dictionary available
+    if var_descriptions:
+        # Build new schema with field metadata
+        new_fields = []
+        for field in table.schema:
+            col_name = field.name
+            if col_name in var_descriptions:
+                # Add description as field metadata
+                metadata = {b'description': var_descriptions[col_name].encode('utf-8')}
+                new_field = field.with_metadata(metadata)
+            else:
+                new_field = field
+            new_fields.append(new_field)
+
+        # Create new schema and cast table
+        new_schema = pa.schema(new_fields)
+        table = table.cast(new_schema)
+
+    # Write parquet
+    pq.write_table(table, output_path, compression='snappy')
 
 
 def extract_zip_files(input_dir: Path) -> list:
@@ -281,15 +357,16 @@ def process_file_wrapper(args_tuple):
     Wrapper function for parallel processing.
 
     Args:
-        args_tuple: (file_path_str, output_dir_str)
+        args_tuple: (file_path_str, output_dir_str, dict_path_str or None)
 
     Returns:
         Tuple of (status, quarter_str, message)
     """
-    file_path_str, output_dir_str = args_tuple
+    file_path_str, output_dir_str, dict_path_str = args_tuple
 
     file_path = Path(file_path_str)
     output_dir = Path(output_dir_str)
+    dict_path = Path(dict_path_str) if dict_path_str else None
 
     try:
         # Extract quarter from filename
@@ -311,9 +388,9 @@ def process_file_wrapper(args_tuple):
             filer_output_dir = output_dir / filer_type
             filer_output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save parquet file
+            # Save parquet file with metadata
             output_path = filer_output_dir / f"{quarter_str}.parquet"
-            df.to_parquet(output_path, index=False, compression='snappy')
+            write_parquet_with_metadata(df, output_path, dict_path)
 
             results.append(f"{filer_type}: {len(df):,} filers, {len(df.columns)-2} vars")
 
@@ -334,16 +411,16 @@ def main():
 Examples:
   # Parse with default settings (data/raw -> data/processed)
   # Automatically extracts any ZIP files found
-  python parse.py
+  python 04_parse_data.py
 
   # Limit to 4 workers
-  python parse.py --workers 4
+  python 04_parse_data.py --workers 4
 
   # Disable parallelization
-  python parse.py --no-parallel
+  python 04_parse_data.py --no-parallel
 
   # Use custom directories
-  python parse.py \\
+  python 04_parse_data.py \\
       --input-dir /path/to/csvs \\
       --output-dir /path/to/output
 
@@ -452,6 +529,10 @@ Output Format:
     else:
         workers = multiprocessing.cpu_count()
 
+    # Check for data dictionary
+    dict_path = output_dir / 'data_dictionary.parquet'
+    dict_path_str = str(dict_path) if dict_path.exists() else None
+
     print("="*80)
     print("FR Y-9C DATA PARSING")
     print("="*80)
@@ -459,6 +540,10 @@ Output Format:
     print(f"Output directory: {output_dir}")
     print(f"Files to process: {len(files_to_process)}")
     print(f"Parallel workers: {workers}")
+    if dict_path_str:
+        print(f"Data dictionary: {dict_path} (metadata will be applied)")
+    else:
+        print("Data dictionary: Not found (run 03_parse_dictionary.py to add metadata)")
     print("="*80)
 
     # Process files
@@ -470,7 +555,7 @@ Output Format:
         # Sequential processing
         print("\nProcessing sequentially...")
         for file_path in files_to_process:
-            status, quarter_str, message = process_file_wrapper((str(file_path), str(output_dir)))
+            status, quarter_str, message = process_file_wrapper((str(file_path), str(output_dir), dict_path_str))
 
             if status == 'success':
                 successful.append(quarter_str)
@@ -489,7 +574,7 @@ Output Format:
         with ProcessPoolExecutor(max_workers=workers) as executor:
             # Submit all tasks
             future_to_file = {
-                executor.submit(process_file_wrapper, (str(f), str(output_dir))): f
+                executor.submit(process_file_wrapper, (str(f), str(output_dir), dict_path_str)): f
                 for f in files_to_process
             }
 
@@ -542,7 +627,7 @@ Output Format:
     print("NEXT STEPS")
     print("="*80)
     print("\nVerify the parsed data:")
-    print(f"  python summarize.py --input-dir {output_dir}")
+    print(f"  python 05_summarize.py --input-dir {output_dir}")
     print("\nOutput structure:")
     print(f"  {output_dir}/y_9c/    - FR Y-9C filers (BHCK variables)")
     print(f"  {output_dir}/y_9lp/   - FR Y-9LP filers (BHCP variables)")

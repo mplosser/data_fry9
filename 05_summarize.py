@@ -10,10 +10,10 @@ This script scans all FR Y-9 parquet files (organized by filer type) and generat
 
 Usage:
     # Summarize with default settings (uses data/processed)
-    python summarize.py
+    python 05_summarize.py
 
     # Disable parallelization
-    python summarize.py --no-parallel
+    python 05_summarize.py --no-parallel
 """
 
 import pandas as pd
@@ -82,13 +82,13 @@ def main():
         epilog="""
 Examples:
   # Generate summary with defaults (uses data/processed)
-  python summarize.py
+  python 05_summarize.py
 
   # Disable parallelization (for low-memory systems)
-  python summarize.py --no-parallel
+  python 05_summarize.py --no-parallel
 
   # Use custom directory
-  python summarize.py --input-dir /path/to/parquet
+  python 05_summarize.py --input-dir /path/to/parquet
 
 Note: Expects subdirectories y_9c/, y_9lp/, y_9sp/ under input directory
         """

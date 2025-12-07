@@ -10,7 +10,16 @@
       "Bash(python:*)",
       "Bash(dir dataraw*.csv /b)",
       "Bash(dir /b \"c:\\Users\\Matthew\\OneDrive\\GitHub\\data_fry9\")",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(git mv:*)",
+      "Bash(ren download.py 01_download_data.py)",
+      "Bash(ren download_dictionary.py 02_download_dictionary.py)",
+      "Bash(ren parse_dictionary.py 03_parse_dictionary.py)",
+      "Bash(ren parse.py 04_parse_data.py)",
+      "Bash(ren summarize.py 05_summarize.py)",
+      "Bash(ren cleanup.py 06_cleanup.py)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

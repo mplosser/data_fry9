@@ -15,10 +15,17 @@ Downloads raw data, separates by filer type, and converts to parquet format. Aut
 
 ## Quick Start
 
-**Simple 3-step process**:
+**Simple 3-step process** (with optional metadata):
 1. `pip install -r requirements.txt` - Install dependencies
-2. `python download.py` - Download data
-3. `python parse.py` - Parse to parquet (with automatic ZIP extraction)
+2. `python 01_download_data.py` - Download data
+3. `python 04_parse_data.py` - Parse to parquet (with automatic ZIP extraction)
+
+**Optional**: Add variable descriptions as parquet metadata:
+```bash
+python 02_download_dictionary.py  # Download MDRM data dictionary
+python 03_parse_dictionary.py     # Parse dictionary for FR Y-9 variables
+python 04_parse_data.py           # Re-parse to add metadata
+```
 
 ### Setup
 
@@ -32,7 +39,7 @@ pip install -r requirements.txt
 
 ```bash
 # Download all available Chicago Fed data (1986 Q3 - 2021 Q1)
-python download.py
+python 01_download_data.py
 
 # Output: CSV files in data/raw/
 ```
@@ -43,10 +50,10 @@ python download.py
 
 ```bash
 # Simple usage with defaults (data/raw -> data/processed)
-python parse.py
+python 04_parse_data.py
 
 # Limit workers for low-memory systems
-python parse.py --workers 4
+python 04_parse_data.py --workers 4
 ```
 
 **Note**: The parse script automatically extracts any `BHCF*.zip` files found in `data/raw/` before parsing.
@@ -55,7 +62,7 @@ python parse.py --workers 4
 
 ```bash
 # Generate quarterly breakdown summary (uses data/processed by default)
-python summarize.py
+python 05_summarize.py
 ```
 
 The summary script provides:
@@ -116,14 +123,16 @@ data/processed/
 
 ### Core Scripts
 
-| Script | Purpose | Input | Output | Performance |
-|--------|---------|-------|--------|-------------|
-| `download.py` | Download Chicago Fed data (1986-2021) | URLs | CSV files | ~2-3 min |
-| `parse.py` | Extract ZIPs & parse CSV to parquet (parallel) | ZIP/CSV files | Parquet files by type | ~1-2 min (160 files) |
-| `summarize.py` | Generate quarterly breakdown by filer type | Parquet files | Summary table | ~5-10 sec (390+ files) |
-| `cleanup.py` | Remove raw/processed files to conserve space | File paths | - | Instant |
+| Script | Purpose | Input | Output |
+|--------|---------|-------|--------|
+| `01_download_data.py` | Download Chicago Fed data (1986-2021 Q1) | URLs | CSV files |
+| `02_download_dictionary.py` | Download MDRM data dictionary | URL | MDRM.csv |
+| `03_parse_dictionary.py` | Parse dictionary for FR Y-9 variables | MDRM.csv | data_dictionary.parquet |
+| `04_parse_data.py` | Parse CSV to parquet with metadata | CSV files | Parquet files by type |
+| `05_summarize.py` | Generate quarterly breakdown by filer type | Parquet files | Summary table |
+| `06_cleanup.py` | Remove raw/processed files to conserve space | File paths | - |
 
-**Parallelization Options** (available for `parse.py`, `summarize.py`):
+**Parallelization Options** (available for `04_parse_data.py`, `05_summarize.py`):
 - **Default**: Uses all CPU cores for parallel processing
 - `--workers N`: Specify number of parallel workers (e.g., `--workers 4`)
 - `--no-parallel`: Disable parallel processing (slower but uses less memory)
@@ -133,31 +142,31 @@ data/processed/
 ```bash
 # Default settings (data/raw -> data/processed)
 # Automatically extracts any ZIP files before parsing
-python parse.py
+python 04_parse_data.py
 
 # Limit to 4 workers
-python parse.py --workers 4
+python 04_parse_data.py --workers 4
 
 # Disable parallelization
-python parse.py --no-parallel
+python 04_parse_data.py --no-parallel
 
 # Custom directories
-python parse.py --input-dir /path/to/csvs --output-dir /path/to/output
+python 04_parse_data.py --input-dir /path/to/csvs --output-dir /path/to/output
 ```
 
-**Cleanup Options** (`cleanup.py`):
+**Cleanup Options** (`06_cleanup.py`):
 ```bash
 # Remove extracted CSVs only (keeps ZIPs as source)
-python cleanup.py --extracted
+python 06_cleanup.py --extracted
 
 # Remove all raw files (CSVs and ZIPs)
-python cleanup.py --raw
+python 06_cleanup.py --raw
 
 # Remove processed parquet files
-python cleanup.py --processed
+python 06_cleanup.py --processed
 
 # Preview what would be deleted (dry run)
-python cleanup.py --raw --dry-run
+python 06_cleanup.py --raw --dry-run
 ```
 
 ## Repository Structure
@@ -169,10 +178,12 @@ data_fry9/
 ├── requirements.txt              # Python dependencies
 ├── .gitignore                    # Git exclusions
 │
-├── download.py                   # Download FR Y-9C data
-├── parse.py                      # CSV to parquet (parallel)
-├── summarize.py                  # Data audit
-└── cleanup.py                    # Remove files to save space
+├── 01_download_data.py           # Download FR Y-9C data
+├── 02_download_dictionary.py     # Download MDRM data dictionary
+├── 03_parse_dictionary.py        # Parse dictionary for FR Y-9 variables
+├── 04_parse_data.py              # CSV to parquet with metadata
+├── 05_summarize.py               # Data audit
+└── 06_cleanup.py                 # Remove files to save space
 ```
 
 ## Data Quality Notes

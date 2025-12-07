@@ -13,30 +13,34 @@ Data pipeline for downloading and processing FR Y-9 Bank Holding Company financi
 pip install -r requirements.txt
 
 # Download raw data from Chicago Fed (1986 Q3 - 2021 Q1)
-python download.py
+python 01_download_data.py
 # For 2021 Q2+, manually download ZIPs from FFIEC to data/raw/
 
+# Optional: Add variable descriptions as parquet metadata
+python 02_download_dictionary.py  # Download MDRM data dictionary
+python 03_parse_dictionary.py     # Parse dictionary for FR Y-9 variables
+
 # Parse CSV to parquet (auto-extracts ZIPs, splits by filer type)
-python parse.py
+python 04_parse_data.py
 
 # Verify/summarize parsed data
-python summarize.py
+python 05_summarize.py
 
 # Cleanup to conserve disk space
-python cleanup.py --extracted  # Remove extracted CSVs (keeps ZIPs)
-python cleanup.py --raw        # Remove all raw files
+python 06_cleanup.py --extracted  # Remove extracted CSVs (keeps ZIPs)
+python 06_cleanup.py --raw        # Remove all raw files
 ```
 
 ### Script Options
-- `parse.py --workers N` - limit parallel workers (for low-memory systems)
-- `parse.py --no-parallel` - disable parallelization
-- `download.py --start-year YYYY --end-year YYYY` - download specific date range
+- `04_parse_data.py --workers N` - limit parallel workers (for low-memory systems)
+- `04_parse_data.py --no-parallel` - disable parallelization
+- `01_download_data.py --start-year YYYY --end-year YYYY` - download specific date range
 
 ## Architecture
 
 ### Data Flow
 ```
-download.py          parse.py                    summarize.py
+01_download_data.py    04_parse_data.py              05_summarize.py
 Chicago Fed/FFIEC → data/raw/*.csv → data/processed/{y_9c,y_9lp,y_9sp}/*.parquet → summary
 ```
 
@@ -47,8 +51,9 @@ The pipeline separates data by regulatory filing type based on which column pref
 - **y_9sp/** - FR Y-9SP filers (BHSP#### columns) - semi-annual (Q2/Q4 only), ~3,400-5,500 smaller institutions
 
 ### Key Implementation Details
-- `download.py`: Downloads from Chicago Fed only (1986 Q3 - 2021 Q1); FFIEC requires manual download
-- `parse.py`: Auto-detects CSV delimiter (comma for Chicago Fed, caret for FFIEC)
+- `01_download_data.py`: Downloads from Chicago Fed only (1986 Q3 - 2021 Q1); FFIEC requires manual download
+- `04_parse_data.py`: Auto-detects CSV delimiter (comma for Chicago Fed, caret for FFIEC); applies dictionary metadata if available
+- `03_parse_dictionary.py`: Filters MDRM to BHCK/BHCP/BHSP variables; outputs data_dictionary.parquet
 - Filer classification logic is in `process_fry9c_csv()` - classifies by counting non-null values per prefix
 - RSSD9001 is renamed to RSSD_ID; REPORTING_PERIOD is derived from filename
 
