@@ -328,12 +328,22 @@ def process_fry9c_csv(csv_path):
     # Split by filer type and retain only relevant columns
     result = {}
 
-    # Y-9C filers: keep BHCK columns
+    # Y-9C filers: keep EVERY column the form carries, not just BHCK. The Y-9C files
+    # the same line item under several prefixes -- BHCK (consolidated), BHDM (domestic
+    # offices), BHCT (consolidated totals), BHCA / BHCW (Basel III standardized /
+    # advanced approaches capital), BHFN (foreign offices), BHBC / BHTX (memoranda) --
+    # plus the RSSD9xxx header fields (name, state, ...) and TEXT items. Keeping only
+    # BHCK lost the domestic/consolidated pairs and the header. Only the other two
+    # forms' own prefixes (BHCP = Y-9LP, BHSP = Y-9SP) are excluded; columns that no
+    # Y-9C filer populates in the quarter are dropped.
     y9c_df = df[df['FILER_TYPE'] == 'FR_Y9C'].copy()
     if len(y9c_df) > 0:
         metadata_cols = ['RSSD_ID', 'REPORTING_PERIOD']
-        relevant_cols = [c for c in bhck_cols if c in y9c_df.columns]
-        y9c_df = y9c_df[metadata_cols + relevant_cols]
+        relevant_cols = [c for c in y9c_df.columns
+                         if c not in metadata_cols and c != 'FILER_TYPE'
+                         and not c.startswith(('BHCP', 'BHSP'))]
+        relevant_cols = [c for c in relevant_cols if y9c_df[c].notna().any()]
+        y9c_df = coerce_numeric_items(y9c_df[metadata_cols + relevant_cols])
         result['y_9c'] = y9c_df
 
     # Y-9LP filers: keep BHCP columns
@@ -353,6 +363,35 @@ def process_fry9c_csv(csv_path):
         result['y_9sp'] = y9sp_df
 
     return result
+
+
+NUMERIC_PREFIXES = ('BHCK', 'BHDM', 'BHCT', 'BHCA', 'BHCW', 'BHCB', 'BHCM', 'BHFN',
+                    'BHBC', 'BHTX', 'BHCE', 'BHOD', 'BHC0', 'BHC2', 'BHC5', 'BHC9')
+
+
+def coerce_numeric_items(df: pd.DataFrame) -> pd.DataFrame:
+    """Store reported amounts as numbers, but never destroy a value to do it.
+
+    The CSVs are read as text. A column under a reporting prefix is converted to float
+    only if EVERY non-null value parses as a number; a column with any non-numeric
+    content (a yes/no item typed as text, a date, a name) is left as text. Header
+    (RSSD9xxx) and TEXT columns are never converted.
+    """
+    converted = {}
+    for col in df.columns:
+        if not col.startswith(NUMERIC_PREFIXES):
+            continue
+        raw = df[col]
+        nonnull = raw.notna() & (raw.astype(str).str.strip() != '')
+        if not nonnull.any():
+            continue
+        num = pd.to_numeric(raw, errors='coerce')
+        if num[nonnull].notna().all():
+            converted[col] = num.astype('float64')
+    if not converted:
+        return df
+    # One assignment, not one insert per column (pandas fragments the frame otherwise).
+    return pd.concat([df.drop(columns=list(converted)), pd.DataFrame(converted, index=df.index)], axis=1)[df.columns]
 
 
 def process_file_wrapper(args_tuple):
