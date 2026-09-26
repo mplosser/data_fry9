@@ -11,7 +11,7 @@ Downloads raw data, separates by filer type, and converts to parquet format. Aut
   - FR Y-9C: Quarterly (Q1, Q2, Q3, Q4) - ~350-400 filers
   - FR Y-9LP: Quarterly (Q1, Q2, Q3, Q4) - ~60-70 filers
   - FR Y-9SP: Semi-annual (Q2, Q4 only) - ~3,400-5,500 filers
-- **Variables**: 120-1,600 per filer type (after efficient filtering by prefix)
+- **Variables**: the Y-9C parquets keep every column a Y-9C filer carries (BHCK consolidated, BHDM domestic, BHCA/BHCW capital, BHCT, BHBC predecessor items, RSSD header, TEXT), ~1,900-2,000 columns; Y-9LP ~174 (BHCP) and Y-9SP ~126 (BHSP)
 
 ## Quick Start
 
@@ -110,7 +110,7 @@ data/processed/
   - `RSSD_ID` - RSSD identifier (integer)
   - `REPORTING_PERIOD` - Quarter end date (datetime)
   - Variable columns specific to filer type:
-    - **y_9c/**: BHCK#### variables only (~1,600 columns)
+    - **y_9c/**: every column the filer carries -- BHCK plus BHDM, BHCA, BHCW, BHCT, BHBC, RSSD header and TEXT (~1,900-2,000 columns; typed numeric only where every value parses, see `coerce_numeric_items`)
     - **y_9lp/**: BHCP#### variables only (~174 columns)
     - **y_9sp/**: BHSP#### variables only (~126 columns)
 
