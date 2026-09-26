@@ -13,6 +13,21 @@ Downloads raw data, separates by filer type, and converts to parquet format. Aut
   - FR Y-9SP: Semi-annual (Q2, Q4 only) - ~3,400-5,500 filers
 - **Variables**: the Y-9C parquets keep every column a Y-9C filer carries (BHCK consolidated, BHDM domestic, BHCA/BHCW capital, BHCT, BHBC predecessor items, RSSD header, TEXT), ~1,900-2,000 columns; Y-9LP ~174 (BHCP) and Y-9SP ~126 (BHSP)
 
+## Building panels: use bankpanel
+
+This repository stops at one parquet file per quarter and filer type, exactly as filed.
+To build a holding-company panel with the same variable names as the Call Report panel
+-- year-to-date income as quarterly flows, the $5bn size tier, coverage and value checks
+-- use [`bankpanel`](https://github.com/mplosser/bankpanel) with `--profile fry9c`, which
+reads `data/processed/y_9c/` directly:
+
+```bash
+bankpanel build --profile fry9c --raw-dir ../data_fry9/data/processed/y_9c --out y9c_root
+```
+
+Its `tools/quarterly_refresh.py` runs this repository's steps (and stops at the manual
+NIC download with the exact files needed), then rebuilds and revalidates the panel.
+
 ## Quick Start
 
 **Simple 3-step process** (with optional metadata):

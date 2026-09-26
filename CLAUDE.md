@@ -73,3 +73,10 @@ The pipeline separates data by regulatory filing type based on which column pref
 (quarter-end + 75 days) but are not in `data/raw/`, and any raw quarter not yet parsed.
 The NIC download page serves a CAPTCHA to scripts, so the 2021Q2+ BHCF ZIPs stay a manual
 download; the check makes the gap visible (exit code 1) before a rebuild.
+
+### Downstream: bankpanel
+
+Panels are built from these parquet files by the sibling repository `bankpanel`
+(`bankpanel build`, and `tools/quarterly_refresh.py` for the full fetch-parse-rebuild-
+revalidate cycle). Changes to column names, typing or file layout here change its input:
+re-run its raw-identity check (`tools/raw_identity_check.py`) after a parser change.

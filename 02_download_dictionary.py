@@ -45,7 +45,7 @@ def create_session() -> requests.Session:
     return session
 
 
-def download_mdrm(output_dir: Path) -> bool:
+def download_mdrm(output_dir: Path, force: bool = False) -> bool:
     """
     Download and extract the MDRM data dictionary.
 
@@ -61,8 +61,8 @@ def download_mdrm(output_dir: Path) -> bool:
     csv_path = output_dir / "MDRM.csv"
 
     # Check if already downloaded
-    if csv_path.exists():
-        print(f"MDRM dictionary already exists: {csv_path}")
+    if csv_path.exists() and not force:
+        print(f"MDRM dictionary already exists: {csv_path} (use --force to refresh)")
         return True
 
     print(f"Downloading MDRM dictionary from Federal Reserve...")
@@ -144,6 +144,8 @@ and descriptions for all Federal Reserve reporting forms including FR Y-9.
         help='Directory to save dictionary files (default: data/raw)'
     )
 
+    parser.add_argument('--force', action='store_true',
+                        help='Re-download the MDRM dictionary even if a copy exists')
     args = parser.parse_args()
 
     print("=" * 60)
@@ -152,7 +154,7 @@ and descriptions for all Federal Reserve reporting forms including FR Y-9.
 
     output_dir = Path(args.output_dir)
 
-    success = download_mdrm(output_dir)
+    success = download_mdrm(output_dir, force=args.force)
 
     if success:
         print("\n" + "=" * 60)
