@@ -44,7 +44,7 @@ python 01_download_data.py
 # Output: CSV files in data/raw/
 ```
 
-**Note**: 2021 Q2+ requires manual download from [FFIEC](https://www.ffiec.gov/npw/FinancialReport/FinancialDataDownload). Simply download the ZIP files to `data/raw/`.
+**Note**: 2021 Q2+ requires manual download from [FFIEC](https://www.ffiec.gov/npw/FinancialReport/FinancialDataDownload). Simply download the ZIP files to `data/raw/`. The page serves a CAPTCHA to non-browser clients, so this step cannot be scripted; run `python 01b_check_ffiec_nic.py` to see which publishable quarters are missing from `data/raw/` (exit code 1 when any are), so the gap is visible before a rebuild.
 
 ### 2. Parse to Parquet
 
@@ -126,6 +126,7 @@ data/processed/
 | Script | Purpose | Input | Output |
 |--------|---------|-------|--------|
 | `01_download_data.py` | Download Chicago Fed data (1986-2021 Q1) | URLs | CSV files |
+| `01b_check_ffiec_nic.py` | List publishable quarters missing from `data/raw/` (2021 Q2+ are a manual NIC download) | calendar + `data/raw/` | report, exit code |
 | `02_download_dictionary.py` | Download MDRM data dictionary | URL | MDRM.csv |
 | `03_parse_dictionary.py` | Parse dictionary for FR Y-9 variables | MDRM.csv | data_dictionary.parquet |
 | `04_parse_data.py` | Parse CSV to parquet with metadata | CSV files | Parquet files by type |

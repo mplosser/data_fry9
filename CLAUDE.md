@@ -66,3 +66,10 @@ The pipeline separates data by regulatory filing type based on which column pref
 - Q1/Q3 have fewer filers (no Y-9SP) - this is expected per Federal Reserve filing requirements
 - 2021 Q2+ may require manual ZIP download from FFIEC if automated download fails
 - Variable counts vary by era (~1,200 in 1986, ~2,500 recent)
+
+### Coverage check (2026-09-26)
+
+`python 01b_check_ffiec_nic.py` lists the quarters that should be public by the calendar
+(quarter-end + 75 days) but are not in `data/raw/`, and any raw quarter not yet parsed.
+The NIC download page serves a CAPTCHA to scripts, so the 2021Q2+ BHCF ZIPs stay a manual
+download; the check makes the gap visible (exit code 1) before a rebuild.
