@@ -77,8 +77,8 @@ FR Y-9C data comes from different sources depending on the period:
 
 | Period | Source | Format | Automation |
 |--------|--------|--------|------------|
-| 1986 Q3 - 2021 Q1 | [Chicago Fed](https://www.chicagofed.org/banking/financial-institution-reports/bhc-data) | CSV (bhcfYYQQ.csv) | ✅ Automated download |
-| 2021 Q2 - Present | [FFIEC NIC](https://www.ffiec.gov/npw/FinancialReport/FinancialDataDownload) | ZIP (BHCFYYYYMMDD.zip) | ⚠️ Manual download, ✅ Auto extraction |
+| 1986 Q3 - 2021 Q1 | [Chicago Fed](https://www.chicagofed.org/banking/financial-institution-reports/bhc-data) | CSV (bhcfYYMM.csv) | automated (`01_download_data.py`) |
+| 2021 Q2 - Present | [FFIEC NIC](https://www.ffiec.gov/npw/FinancialReport/FinancialDataDownload) | ZIP (BHCFYYYYMMDD.zip) | manual download (the site blocks scripts); `04_parse_data.py` extracts the ZIPs; `01b_check_ffiec_nic.py` lists missing quarters |
 
 ## Output Format
 
@@ -215,13 +215,12 @@ This pattern is consistent across all years from 1986 onwards and is **not an er
 
 - **Pre-2021 Q2** (Chicago Fed): Comma-delimited CSV files
 - **2021 Q2+** (FFIEC): Caret (^) delimited CSV files
-- The `parse.py` script automatically detects the correct delimiter
+- `04_parse_data.py` detects the delimiter automatically
 
 ### Variable Coverage
 
 - Variable names and reporting requirements evolve over time
-- Earlier quarters (1986-1990s) have fewer variables (~1,200)
-- Recent quarters have more detailed breakdowns (~2,500 variables)
+- The Y-9C files carry ~1,300 columns in the late 1980s and ~1,900-2,000 today (all prefixes; see Output Format)
 - Not all BHCs report all variables (smaller BHCs have fewer required fields)
 
 ## Additional Resources

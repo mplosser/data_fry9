@@ -50,7 +50,7 @@ Chicago Fed/FFIEC → data/raw/*.csv → data/processed/{y_9c,y_9lp,y_9sp}/*.par
 
 ### Filer Types
 The pipeline separates data by regulatory filing type based on which column prefix has the most populated fields:
-- **y_9c/** - FR Y-9C filers (BHCK#### columns) - quarterly, ~350-400 institutions
+- **y_9c/** - FR Y-9C filers - every column the filer carries (BHCK, BHDM, BHCA, BHCW, BHCT, BHBC, RSSD header, TEXT), typed numeric only where every value parses (`coerce_numeric_items`) - quarterly, ~350-400 institutions today
 - **y_9lp/** - FR Y-9LP filers (BHCP#### columns) - quarterly, ~60-70 large/complex institutions
 - **y_9sp/** - FR Y-9SP filers (BHSP#### columns) - semi-annual (Q2/Q4 only), ~3,400-5,500 smaller institutions
 
@@ -64,8 +64,8 @@ The pipeline separates data by regulatory filing type based on which column pref
 ## Data Notes
 
 - Q1/Q3 have fewer filers (no Y-9SP) - this is expected per Federal Reserve filing requirements
-- 2021 Q2+ may require manual ZIP download from FFIEC if automated download fails
-- Variable counts vary by era (~1,200 in 1986, ~2,500 recent)
+- 2021 Q2+ is always a manual ZIP download from the FFIEC NIC site (CAPTCHA blocks scripts); `01b_check_ffiec_nic.py` reports which quarters are missing
+- Y-9C column counts vary by era (~1,300 late 1980s, ~1,900-2,000 today)
 
 ### Coverage check (2026-09-26)
 
