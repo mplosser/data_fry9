@@ -693,7 +693,7 @@ Output Format:
     print("\nVerify the parsed data:")
     print(f"  python 05_summarize.py --input-dir {output_dir}")
     print("\nOutput structure:")
-    print(f"  {output_dir}/y_9c/    - FR Y-9C filers (BHCK variables)")
+    print(f"  {output_dir}/y_9c/    - FR Y-9C filers (every prefix the filer carries: BHCK, BHDM, BHCA, ...)")
     print(f"  {output_dir}/y_9lp/   - FR Y-9LP filers (BHCP variables)")
     print(f"  {output_dir}/y_9sp/   - FR Y-9SP filers (BHSP variables)")
 
