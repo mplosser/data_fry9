@@ -1,6 +1,6 @@
 # FR Y-9C Bank Holding Company Data Pipeline
 
-Automated pipeline for downloading and processing FR Y-9 data (1986-2025).
+Automated pipeline for downloading and processing FR Y-9 data (1986Q3 to the latest published quarter, 2026Q2 at this writing).
 
 ## Overview
 Downloads raw data, separates by filer type, and converts to parquet format. Automatically handles ZIP file extraction for manually downloaded FFIEC data.
